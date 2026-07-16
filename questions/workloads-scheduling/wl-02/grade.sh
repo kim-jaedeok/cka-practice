@@ -16,6 +16,7 @@ criterion 1 "Deployment 롤아웃 성공 (1/1 Ready)" \
   "deploy_ready mercury cleaner 1"
 
 criterion 2 "kubectl logs -c logger-con 으로 애플리케이션 로그 확인 가능" \
-  "kctx -n mercury logs deploy/cleaner -c logger-con --tail=5 2>/dev/null | grep -q 'cleaner iteration'"
+  "pod=\$(kctx -n mercury get pods -l app=cleaner --sort-by=.metadata.creationTimestamp -o name | tail -1); \
+   kctx -n mercury logs \"\$pod\" -c logger-con --tail=5 2>/dev/null | grep -q 'cleaner iteration'"
 
 grade_finish

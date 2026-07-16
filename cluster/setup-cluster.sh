@@ -44,6 +44,12 @@ fi
 step "4/8 ingress-nginx 설치 (kind provider)"
 kctx apply -f "https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml" \
   || die "ingress-nginx 설치 실패"
+# 컨트롤러를 control-plane(ingress-ready, hostPort 80→호스트 8080 매핑 노드)에 고정
+kctx -n ingress-nginx patch deploy ingress-nginx-controller --type=strategic -p '{
+  "spec":{"template":{"spec":{
+    "nodeSelector":{"ingress-ready":"true","kubernetes.io/os":"linux"},
+    "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]
+  }}}}' >/dev/null || warn "ingress-nginx nodeSelector patch 실패"
 
 step "5/8 Gateway API CRD 설치 ($GATEWAY_API_VERSION)"
 kctx apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$GATEWAY_API_VERSION/standard-install.yaml" \
