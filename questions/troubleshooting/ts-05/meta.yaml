@@ -1,0 +1,5 @@
+id: ts-05
+title: Node NotReady (kubelet down)
+domain: troubleshooting
+points: 7
+minutes: 8

@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kapp
+  labels:
+    app: kapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kapp
+  template:
+    metadata:
+      labels:
+        app: kapp
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.28
+          ports:
+            - containerPort: 80

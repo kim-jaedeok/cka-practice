@@ -1,0 +1,5 @@
+id: ca-02
+title: Grant cluster-wide access with ClusterRole
+domain: cluster-architecture
+points: 6
+minutes: 7

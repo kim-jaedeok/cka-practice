@@ -1,0 +1,5 @@
+id: ca-08
+title: Deploy with Kustomize overlays
+domain: cluster-architecture
+points: 6
+minutes: 8

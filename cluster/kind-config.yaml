@@ -1,0 +1,28 @@
+# CKA 연습용 kind 클러스터: control-plane 1 + worker 2
+# - 기본 CNI(kindnet) 비활성 → Calico 설치 (NetworkPolicy 시행을 위해 필수)
+# - podSubnet은 Calico 기본 풀(192.168.0.0/16)과 일치시킨다
+# - ingress-nginx가 control-plane의 hostPort 80/443 에 바인딩되고,
+#   호스트(WSL)에서는 localhost:8080 / localhost:8443 으로 접근한다
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: cka
+networking:
+  disableDefaultCNI: true
+  podSubnet: "192.168.0.0/16"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
+  - role: worker
+  - role: worker

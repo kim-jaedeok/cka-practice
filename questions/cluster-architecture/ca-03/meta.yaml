@@ -1,0 +1,5 @@
+id: ca-03
+title: Create an etcd snapshot backup
+domain: cluster-architecture
+points: 7
+minutes: 10

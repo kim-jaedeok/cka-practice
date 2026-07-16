@@ -1,0 +1,5 @@
+id: sn-01
+title: Expose a Deployment with a ClusterIP Service
+domain: services-networking
+points: 5
+minutes: 5

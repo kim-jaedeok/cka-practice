@@ -1,0 +1,5 @@
+id: ca-01
+title: Grant namespaced access with Role and RoleBinding
+domain: cluster-architecture
+points: 6
+minutes: 7

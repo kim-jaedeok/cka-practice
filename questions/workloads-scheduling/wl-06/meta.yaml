@@ -1,0 +1,5 @@
+id: wl-06
+title: ConfigMap, Secret and PriorityClass
+domain: workloads-scheduling
+points: 8
+minutes: 10

@@ -1,0 +1,5 @@
+id: wl-05
+title: Scheduling with nodeSelector and tolerations
+domain: workloads-scheduling
+points: 7
+minutes: 8

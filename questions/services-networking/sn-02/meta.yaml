@@ -1,0 +1,5 @@
+id: sn-02
+title: Expose an application via NodePort
+domain: services-networking
+points: 5
+minutes: 5

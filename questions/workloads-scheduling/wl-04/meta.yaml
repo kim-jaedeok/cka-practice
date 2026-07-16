@@ -1,0 +1,5 @@
+id: wl-04
+title: Configure liveness and readiness probes
+domain: workloads-scheduling
+points: 6
+minutes: 7

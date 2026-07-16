@@ -1,0 +1,6 @@
+apiVersion: v2
+name: webapp
+description: A simple web application chart for CKA practice
+type: application
+version: 0.1.0
+appVersion: "1.28"

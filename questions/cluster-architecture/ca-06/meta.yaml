@@ -1,0 +1,5 @@
+id: ca-06
+title: Prepare a worker node upgrade (kubeadm)
+domain: cluster-architecture
+points: 6
+minutes: 9

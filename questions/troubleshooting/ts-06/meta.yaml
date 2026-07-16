@@ -1,0 +1,5 @@
+id: ts-06
+title: Cluster-wide DNS failure (CoreDNS broken)
+domain: troubleshooting
+points: 7
+minutes: 10

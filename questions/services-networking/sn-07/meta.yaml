@@ -1,0 +1,5 @@
+id: sn-07
+title: Fix a Service that receives no traffic
+domain: services-networking
+points: 5
+minutes: 6
