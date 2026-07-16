@@ -24,6 +24,11 @@ else
   kind create cluster --config "$SCRIPT_DIR/kind-config.yaml" || die "kind 클러스터 생성 실패"
 fi
 
+# WSL 재시작 시 컨테이너가 자동 복구되도록 restart 정책 강화
+docker update --restart=unless-stopped \
+  "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${CKA_CLUSTER_NAME}-worker2" \
+  >/dev/null 2>&1 || true
+
 step "2/8 Calico CNI 설치 ($CALICO_VERSION)"
 kctx apply -f "https://raw.githubusercontent.com/projectcalico/calico/$CALICO_VERSION/manifests/calico.yaml" \
   || die "Calico 설치 실패"
