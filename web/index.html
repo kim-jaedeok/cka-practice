@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cka-practice</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --fg: #c9d1d9;
+    --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    --yellow: #d29922; --code-bg: #1c2128;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg); height: 100vh; overflow: hidden;
+    font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; font-size: 14px;
+    display: grid; grid-template-columns: var(--split, 46%) 6px 1fr;
+  }
+  #left { display: flex; flex-direction: column; overflow: hidden; background: var(--panel); }
+  #divider { background: var(--border); cursor: col-resize; }
+  #divider:hover { background: var(--accent); }
+  #right { display: flex; flex-direction: column; overflow: hidden; }
+  #right iframe { flex: 1; border: 0; width: 100%; background: #000; }
+
+  header { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  header .brand { font-weight: 700; color: var(--accent); }
+  header .tab { cursor: pointer; padding: 3px 10px; border-radius: 6px; color: var(--muted); }
+  header .tab.active { background: var(--code-bg); color: var(--fg); }
+  select, button { font-family: inherit; font-size: 13px; }
+  select {
+    background: var(--code-bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 8px; max-width: 100%;
+  }
+  .btnrow { padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+  button {
+    background: #21262d; color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #238636; border-color: #2ea043; }
+  button.primary:hover { background: #2ea043; }
+  button:disabled { opacity: .5; cursor: default; }
+
+  #content { flex: 1; overflow-y: auto; padding: 14px 18px; }
+  #qmeta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  #qbody h1, #qbody h2, #qbody h3 { line-height: 1.3; }
+  #qbody h1 { font-size: 18px; } #qbody h2 { font-size: 16px; } #qbody h3 { font-size: 14px; }
+  #qbody code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 12.5px;
+    font-family: "Cascadia Code", Consolas, monospace; }
+  #qbody pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; overflow-x: auto; }
+  #qbody pre code { background: none; padding: 0; }
+  #qbody ol, #qbody ul { padding-left: 22px; }
+  #qbody li { margin: 3px 0; }
+  #qbody strong { color: #fff; }
+
+  #console {
+    border-top: 1px solid var(--border); background: #010409; color: var(--fg);
+    font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px;
+    white-space: pre-wrap; overflow-y: auto; height: 34%; padding: 10px 12px;
+  }
+  #console .ok { color: var(--green); } #console .bad { color: var(--red); }
+  #console .dim { color: var(--muted); }
+  .hidden { display: none !important; }
+  .pill { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); }
+  .pill.graded { color: var(--green); border-color: var(--green); }
+  .pill.started { color: var(--yellow); border-color: var(--yellow); }
+  #examTimer { font-family: monospace; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div id="left">
+    <header>
+      <span class="brand">cka-practice</span>
+      <span class="tab active" data-tab="practice">연습</span>
+      <span class="tab" data-tab="exam">모의고사</span>
+      <span style="flex:1"></span>
+      <button id="refresh" title="목록 새로고침">⟳</button>
+    </header>
+
+    <!-- 연습 탭 -->
+    <div id="practiceTab" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="btnrow">
+        <select id="qselect" style="flex:1;min-width:180px;"></select>
+      </div>
+      <div class="btnrow">
+        <button id="btnStart" class="primary">Start</button>
+        <button id="btnGrade">Grade</button>
+        <button id="btnSolution">Solution</button>
+        <button id="btnReset">Reset</button>
+      </div>
+      <div id="content">
+        <div id="qmeta"></div>
+        <div id="qbody"><p class="dim" style="color:var(--muted)">문제를 선택하세요.</p></div>
+      </div>
+    </div>
+
+    <!-- 모의고사 탭 -->
+    <div id="examTab" class="hidden" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="btnrow">
+        <button id="btnExamStart" class="primary">모의고사 시작</button>
+        <button id="btnExamStatus">상태</button>
+        <button id="btnExamFinish">종료·채점</button>
+        <button id="btnExamAbort">중단</button>
+        <span style="flex:1"></span>
+        <span>남은 시간: <span id="examTimer">--:--:--</span></span>
+      </div>
+      <div class="btnrow" id="examNav"></div>
+      <div id="content">
+        <div id="examBody"><p style="color:var(--muted)">「모의고사 시작」을 누르면 17문제 환경이 구성됩니다 (몇 분 소요).</p></div>
+      </div>
+    </div>
+
+    <div id="console"><span class="dim">결과가 여기에 표시됩니다.</span></div>
+  </div>
+
+  <div id="divider"></div>
+
+  <div id="right">
+    <iframe id="term" title="terminal"></iframe>
+  </div>
+
+<script>
+const TTYD_PORT = Number(location.port || 7681) + 1;
+document.getElementById('term').src = `${location.protocol}//${location.hostname}:${TTYD_PORT}`;
+
+const $ = (id) => document.getElementById(id);
+const consoleEl = $('console');
+
+function log(text, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text.endsWith('\n') ? text : text + '\n';
+  consoleEl.appendChild(span);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+function clearConsole() { consoleEl.innerHTML = ''; }
+function logResult(out) {
+  clearConsole();
+  out.split('\n').forEach(line => {
+    let cls = '';
+    if (/✓|— 만점|합격|deployed|100%/.test(line)) cls = 'ok';
+    else if (/✗|불합격|fail|\[fail\]/i.test(line)) cls = 'bad';
+    log(line, cls);
+  });
+}
+
+// ── 아주 작은 마크다운 렌더러 (question.md가 쓰는 문법만) ──
+function renderMarkdown(md) {
+  const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline = (s) => esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  const lines = md.split('\n');
+  let html = '', i = 0, listType = null;
+  const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+  while (i < lines.length) {
+    let line = lines[i];
+    if (/^```/.test(line)) {                       // 코드블록
+      closeList(); i++; let code = '';
+      while (i < lines.length && !/^```/.test(lines[i])) { code += lines[i] + '\n'; i++; }
+      i++; html += `<pre><code>${esc(code)}</code></pre>`; continue;
+    }
+    let m;
+    if ((m = line.match(/^(#{1,4})\s+(.*)$/))) {   // 헤딩
+      closeList(); const lvl = m[1].length; html += `<h${lvl}>${inline(m[2])}</h${lvl}>`; i++; continue;
+    }
+    if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) {    // 순서 리스트
+      if (listType !== 'ol') { closeList(); html += '<ol>'; listType = 'ol'; }
+      html += `<li>${inline(m[1])}</li>`; i++; continue;
+    }
+    if ((m = line.match(/^\s*[-*]\s+(.*)$/))) {     // 비순서 리스트
+      if (listType !== 'ul') { closeList(); html += '<ul>'; listType = 'ul'; }
+      html += `<li>${inline(m[1])}</li>`; i++; continue;
+    }
+    if (line.trim() === '') { closeList(); i++; continue; }
+    closeList(); html += `<p>${inline(line)}</p>`; i++;
+  }
+  closeList();
+  return html;
+}
+
+// ── 연습 탭 ──
+let questions = [];
+async function loadQuestions() {
+  questions = await (await fetch('/api/questions')).json();
+  const sel = $('qselect');
+  const cur = sel.value;
+  sel.innerHTML = '';
+  const domains = {};
+  questions.forEach(q => { (domains[q.domain] ||= []).push(q); });
+  Object.keys(domains).forEach(dom => {
+    const og = document.createElement('optgroup'); og.label = dom;
+    domains[dom].forEach(q => {
+      const o = document.createElement('option');
+      const mark = q.status.startsWith('graded') ? '✔ ' : (q.status.startsWith('started') ? '● ' : '');
+      o.value = q.id;
+      o.textContent = `${mark}${q.id} · ${q.title} (${q.points}p)`;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+  if (cur) sel.value = cur;
+}
+
+async function showQuestion(id) {
+  const d = await (await fetch('/api/question/' + id)).json();
+  if (d.error) return;
+  $('qmeta').textContent = `${d.id} · ${d.domain} · ${d.points} points · 예상 ${d.minutes}분 · 상태: ${d.status}`;
+  $('qbody').innerHTML = renderMarkdown(d.question);
+}
+
+async function action(cmd) {
+  const id = $('qselect').value;
+  if (!id) return;
+  const btns = document.querySelectorAll('#practiceTab button');
+  btns.forEach(b => b.disabled = true);
+  clearConsole();
+  log(`$ cka ${cmd} ${id}`, 'dim');
+  if (cmd === 'start' || cmd === 'reset') log('환경 구성 중... (최대 1~2분)', 'dim');
+  try {
+    const r = await (await fetch('/api/action', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cmd, id})
+    })).json();
+    logResult(r.output || '(출력 없음)');
+    await loadQuestions();
+    if (cmd === 'start' || cmd === 'reset') await showQuestion(id);
+  } catch (e) { log('요청 실패: ' + e, 'bad'); }
+  finally { btns.forEach(b => b.disabled = false); }
+}
+
+$('qselect').addEventListener('change', e => showQuestion(e.target.value));
+$('btnStart').onclick = () => action('start');
+$('btnGrade').onclick = () => action('grade');
+$('btnSolution').onclick = () => action('solution');
+$('btnReset').onclick = () => action('reset');
+$('refresh').onclick = loadQuestions;
+
+// ── 모의고사 탭 ──
+let examPoll = null;
+function parseTimer(out) {
+  const m = out.match(/남은 시간:\s*([0-9:\-]+)/);
+  return m ? m[1] : null;
+}
+async function examStatus(silent) {
+  const r = await (await fetch('/api/exam/status')).json();
+  if (!silent) logResult(r.output);
+  const t = parseTimer(r.output);
+  if (t) $('examTimer').textContent = t;
+  // 문제 네비게이션 버튼 구성
+  const nav = $('examNav'); nav.innerHTML = '';
+  const rows = r.output.split('\n').filter(l => /^q\d+\s/.test(l.trim()));
+  rows.forEach(row => {
+    const num = row.trim().match(/^q(\d+)/)[1];
+    const b = document.createElement('button');
+    b.textContent = 'Q' + num; b.style.padding = '4px 8px';
+    b.onclick = () => examQuestion(num);
+    nav.appendChild(b);
+  });
+  return r.output;
+}
+async function examQuestion(n) {
+  const r = await (await fetch('/api/exam/question/' + n)).json();
+  $('examBody').innerHTML = renderMarkdown(r.output.replace(/^═.*$/gm, '').trim());
+}
+async function examAction(cmd) {
+  const btns = document.querySelectorAll('#examTab button');
+  btns.forEach(b => b.disabled = true);
+  clearConsole();
+  log(`$ cka exam ${cmd}`, 'dim');
+  if (cmd === 'start') log('17문제 환경 구성 중... (몇 분 소요)', 'dim');
+  try {
+    const r = await (await fetch('/api/exam', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cmd})
+    })).json();
+    logResult(r.output);
+    if (cmd === 'start') { startExamPoll(); await examStatus(true); }
+    if (cmd === 'finish' || cmd === 'abort') stopExamPoll();
+  } catch (e) { log('요청 실패: ' + e, 'bad'); }
+  finally { btns.forEach(b => b.disabled = false); }
+}
+function startExamPoll() { stopExamPoll(); examPoll = setInterval(() => examStatus(true), 5000); }
+function stopExamPoll() { if (examPoll) { clearInterval(examPoll); examPoll = null; } $('examTimer').textContent = '--:--:--'; }
+
+$('btnExamStart').onclick = () => examAction('start');
+$('btnExamStatus').onclick = () => examStatus(false);
+$('btnExamFinish').onclick = () => examAction('finish');
+$('btnExamAbort').onclick = () => examAction('abort');
+
+// ── 탭 전환 ──
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  const tab = t.dataset.tab;
+  $('practiceTab').classList.toggle('hidden', tab !== 'practice');
+  $('examTab').classList.toggle('hidden', tab !== 'exam');
+});
+
+// ── 드래그 리사이즈 ──
+(() => {
+  const div = $('divider'); let dragging = false;
+  div.addEventListener('mousedown', () => { dragging = true; document.body.style.userSelect = 'none'; });
+  window.addEventListener('mouseup', () => { dragging = false; document.body.style.userSelect = ''; });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const pct = Math.min(75, Math.max(20, e.clientX / window.innerWidth * 100));
+    document.body.style.setProperty('--split', pct + '%');
+  });
+})();
+
+loadQuestions();
+</script>
+</body>
+</html>

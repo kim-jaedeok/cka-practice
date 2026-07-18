@@ -46,6 +46,23 @@ cka reset ts-03           # 환경 초기화 후 재도전
 
 파일 제출형 문제(로그 추출 등)의 답안 파일은 `~/cka/<문제id>/`에 저장한다.
 
+## 웹 스플릿 뷰 (지문이 안 가려지게)
+
+터미널 하나로 풀면 명령을 칠수록 지문이 위로 밀려 가려진다. 웹 UI는
+**왼쪽 = 문제 지문·버튼, 오른쪽 = 실제 터미널**로 화면을 나눠 이 문제를 해결한다.
+
+```bash
+cka web                   # http://localhost:7681 (기본 포트)
+cka web 8090              # 포트 지정 (터미널은 자동으로 8091)
+```
+
+- 최초 실행 시 터미널 서버(ttyd) 정적 바이너리를 `~/.local/bin`에 자동 설치한다.
+- Windows 기본 브라우저가 자동으로 열린다 (안 열리면 위 URL 직접 접속).
+- 왼쪽에서 문제를 고르고 **Start / Grade / Solution / Reset** 버튼으로 조작하며,
+  오른쪽 터미널은 지금과 똑같은 실제 bash 셸(`cka`가 PATH에 등록됨)이라 kubectl로 직접 푼다.
+- 「모의고사」 탭에서 17문제 타이머 세션도 웹에서 진행할 수 있다.
+- 두 포트 모두 `127.0.0.1`에만 바인딩된다(외부 노출 없음). 종료는 `Ctrl-C`.
+
 ## 모의고사 (실전 리허설)
 
 ```bash
@@ -59,7 +76,8 @@ cka exam abort            # 중단
 ## 구조
 
 ```
-cka                        # CLI
+cka                        # CLI (web 서브커맨드 포함)
+web/                       # 웹 스플릿 뷰 (server.py 백엔드 + index.html + serve.sh)
 cluster/                   # kind 클러스터 + 애드온 셋업
 lib/                       # 공통 함수 + 채점 러너 (criterion 기반)
 questions/<domain>/<id>/   # question.md(영어 지문) setup.sh(환경 구성)

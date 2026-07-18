@@ -21,6 +21,7 @@ ${C_BLD}cka — CKA 시험 연습 CLI${C_RST}
   cka reset <id>           문제 환경 재설정 (다시 풀기)
   cka exam [status|question <n>|finish|abort]
                            모의고사 (17문제 / 2시간 / 성적표)
+  cka web [port]           웹 스플릿 뷰 (왼쪽 지문 / 오른쪽 터미널, 기본 7681)
   cka cluster up|down|status
                            연습용 kind 클러스터 관리
 
@@ -123,6 +124,7 @@ case "$cmd" in
     ok "재설정 완료. 'cka question $1' 로 지문을 다시 볼 수 있습니다."
     ;;
   exam) bash "$CKA_ROOT/exam/mock-exam.sh" "$@" ;;
+  web) bash "$CKA_ROOT/web/serve.sh" "$@" ;;
   cluster) cmd_cluster "${1:-status}" ;;
   help|--help|-h) usage ;;
   *) err "알 수 없는 명령: $cmd"; usage; exit 1 ;;
