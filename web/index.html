@@ -15,7 +15,7 @@
   body {
     background: var(--bg); color: var(--fg); height: 100vh; overflow: hidden;
     font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; font-size: 14px;
-    display: grid; grid-template-columns: var(--split, 46%) 6px 1fr;
+    display: grid; grid-template-columns: var(--split, 46%) 6px 1fr; grid-template-rows: 100%;
   }
   #left { display: flex; flex-direction: column; overflow: hidden; background: var(--panel); }
   #divider { background: var(--border); cursor: col-resize; }
@@ -67,6 +67,9 @@
   .pill.graded { color: var(--green); border-color: var(--green); }
   .pill.started { color: var(--yellow); border-color: var(--yellow); }
   #examTimer { font-family: monospace; font-weight: 700; }
+  #qmeta #qtimer { font-family: monospace; font-weight: 700; color: var(--muted); }
+  #qmeta #qtimer.run { color: var(--yellow); }
+  #qmeta #qtimer.bad { color: var(--red); }
 </style>
 </head>
 <body>
@@ -85,10 +88,9 @@
         <select id="qselect" style="flex:1;min-width:180px;"></select>
       </div>
       <div class="btnrow">
-        <button id="btnStart" class="primary">Start</button>
+        <button id="btnInit" class="primary">Init</button>
         <button id="btnGrade">Grade</button>
         <button id="btnSolution">Solution</button>
-        <button id="btnReset">Reset</button>
       </div>
       <div id="content">
         <div id="qmeta"></div>
@@ -207,13 +209,60 @@ async function loadQuestions() {
 async function showQuestion(id) {
   const d = await (await fetch('/api/question/' + id)).json();
   if (d.error) return;
-  $('qmeta').textContent = `${d.id} · ${d.domain} · ${d.points} points · 예상 ${d.minutes}분 · 상태: ${d.status}`;
+  $('qmeta').textContent = `${d.id} · ${d.domain} · ${d.points} points · 예상 ${d.minutes}분 · 상태: ${d.status} - `;
+  const span = document.createElement('span');
+  span.id = 'qtimer';
+  $('qmeta').appendChild(span);
+  renderTimer(id);
   $('qbody').innerHTML = renderMarkdown(d.question);
+}
+
+// ── 남은 시간 카운트다운 (init 시작) ──
+let practiceTimer = null, timerQid = null, timerRemaining = 0;
+function fmtTime(s) {
+  if (s < 0) s = 0;
+  const m = Math.floor(s / 60), sec = s % 60;
+  return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+}
+function renderTimer(id) {
+  const el = $('qtimer'); if (!el) return;
+  el.className = '';
+  if (timerQid !== id) { el.textContent = '--:--'; return; }
+  if (timerRemaining > 0) {                    // 남은 시간
+    el.textContent = fmtTime(timerRemaining);
+    el.classList.add('run');
+  } else {                                     // 시간 초과: +MM:SS 누적, 빨간색
+    el.textContent = timerRemaining === 0 ? '00:00' : '+' + fmtTime(-timerRemaining);
+    el.classList.add('bad');
+  }
+}
+function stopTimer() { if (practiceTimer) { clearInterval(practiceTimer); practiceTimer = null; } }
+function startTimer(id, minutes) {
+  stopTimer();
+  timerQid = id;
+  timerRemaining = (parseInt(minutes, 10) || 0) * 60;
+  renderTimer(id);
+  practiceTimer = setInterval(() => {          // 0 도달 후에도 멈추지 않고 초과 시간 추적
+    timerRemaining--;
+    if ($('qselect').value === timerQid) renderTimer(timerQid);
+  }, 1000);
+}
+
+// init: 환경 초기화(setup) → 남은 시간 초기화·카운트 시작 → 지문 표시
+// reset을 쓰는 이유: start는 지문 전체를 콘솔에 덤프하지만 reset은 짧은 완료 메시지만 낸다.
+// 지문은 아래 showQuestion(action 내부)이 #qbody에만 렌더한다.
+async function initQuestion() {
+  const id = $('qselect').value;
+  if (!id) return;
+  await action('reset');
+  const q = questions.find(x => x.id === id);
+  startTimer(id, q ? q.minutes : 0);
 }
 
 async function action(cmd) {
   const id = $('qselect').value;
   if (!id) return;
+  if (cmd === 'grade' || cmd === 'solution') stopTimer();   // 채점·정답 확인 시 타이머 정지(현재값 고정)
   const btns = document.querySelectorAll('#practiceTab button');
   btns.forEach(b => b.disabled = true);
   clearConsole();
@@ -232,10 +281,9 @@ async function action(cmd) {
 }
 
 $('qselect').addEventListener('change', e => showQuestion(e.target.value));
-$('btnStart').onclick = () => action('start');
+$('btnInit').onclick = () => initQuestion();
 $('btnGrade').onclick = () => action('grade');
 $('btnSolution').onclick = () => action('solution');
-$('btnReset').onclick = () => action('reset');
 $('refresh').onclick = loadQuestions;
 
 // ── 모의고사 탭 ──
@@ -311,7 +359,8 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   });
 })();
 
-loadQuestions();
+// 최초 로드 시 기본 선택된 문제의 지문을 바로 출력 (init과 무관)
+loadQuestions().then(() => { const id = $('qselect').value; if (id) showQuestion(id); });
 </script>
 </body>
 </html>
