@@ -13,7 +13,7 @@ metadata:
   name: checkout-content
   namespace: shop
 data:
-  index.html: "checkout service ready"
+  index.html: "checkout service ready\n"
 ---
 apiVersion: apps/v1
 kind: Deployment

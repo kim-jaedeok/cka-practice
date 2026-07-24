@@ -15,7 +15,7 @@ metadata:
   name: ${name}-content
   namespace: web-zone
 data:
-  index.html: "response from ${name}"
+  index.html: "response from ${name}\n"
 ---
 apiVersion: apps/v1
 kind: Deployment
