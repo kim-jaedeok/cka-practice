@@ -34,6 +34,29 @@ kubectl -n kube-system get pods | grep scheduler    # Running 1/1
 kubectl -n sched-check get pods                     # Running으로 전환
 ```
 
+### 편집기 없이 고치는 대안 (연습 환경 / 실전 모두 유용)
+
+실전 시험 노드에는 `vi`/`vim`/`nano`가 기본 설치돼 있다. 다만 **kind 연습
+환경의 노드 컨테이너에는 편집기가 없을 수 있다**(`./cka cluster up` 또는
+`./cka cluster doctor`가 자동 설치하지만, 없을 때는 아래로 대체).
+
+```bash
+# (A) sed로 편집기 없이 직접 치환 — 한 줄 오타엔 이게 가장 빠르고 안전
+docker exec cka-control-plane \
+  sed -i 's/kube-schedulerx/kube-scheduler/' /etc/kubernetes/manifests/kube-scheduler.yaml
+
+# (B) 컨테이너 안에 편집기 설치 후 vi 사용
+docker exec -it cka-control-plane bash
+apt-get update && apt-get install -y vim   # 또는 nano
+
+# (C) 호스트로 꺼내 편집기(VSCode 등)로 고치고 되돌리기 — Windows 호스트에 편함
+docker cp cka-control-plane:/etc/kubernetes/manifests/kube-scheduler.yaml ./ks.yaml
+#   ks.yaml 수정 후
+docker cp ./ks.yaml cka-control-plane:/etc/kubernetes/manifests/kube-scheduler.yaml
+```
+
+어느 방법이든 저장 즉시 kubelet이 static Pod를 ~20초 안에 자동 재생성한다.
+
 ## 해설 (한국어)
 
 - **"Pending + 이벤트 없음"은 스케줄러 장애의 시그니처다.** 리소스 부족이면

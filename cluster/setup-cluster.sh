@@ -57,7 +57,7 @@ else
   info "helm 설치 완료: $("$HOME/.local/bin/helm" version --short 2>/dev/null || echo ok)"
 fi
 
-step "7/8 연습용 이미지 프리로드 (문제 풀이 속도 향상)"
+step "7/8 노드 준비: 이미지 프리로드 + 편집기 설치"
 # docker 29의 containerd 이미지 스토어와 'kind load docker-image'가 호환되지 않아
 # 각 노드 안에서 crictl pull로 직접 받는다
 for node in "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${CKA_CLUSTER_NAME}-worker2"; do
@@ -66,6 +66,10 @@ for node in "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${
       || warn "$node에 $img 프리로드 실패 (풀이 시 원격 pull로 대체됨)"
   done
 done
+# kind 노드에는 편집기가 없어 ts-12 등 매니페스트 직접 수정 문제가 막힌다 (실전 노드엔 있음)
+info "노드 편집기(vim·nano) 설치 중..."
+installed_editors="$(install_node_editors)"
+info "노드 편집기 설치 완료 (${installed_editors}개 노드 신규 설치)"
 
 step "8/8 채점용 상주 파드(cka-system/grader-client) + 대기"
 addon_install_grader_client || die "grader-client 설치 실패"
