@@ -32,8 +32,11 @@ kctx() { kubectl --context "$CKA_CONTEXT" "$@"; }
 
 cluster_ready() { kctx get nodes >/dev/null 2>&1; }
 
-# WSL 재시작 직후에는 kind 컨테이너가 콜드부팅 중일 수 있으므로 API 기동을 기다린다
-require_cluster() {
+# 애드온 설치·점검 함수 (metrics-server·ingress-nginx·gateway-api·grader-client)
+source "$(dirname "${BASH_SOURCE[0]}")/addons.sh"
+
+# API가 준비될 때까지만 기다린다 (애드온 점검은 하지 않음)
+_wait_api() {
   cluster_ready && return 0
   kind get clusters 2>/dev/null | grep -qx "$CKA_CLUSTER_NAME" \
     || die "클러스터가 없습니다. 먼저 'cka cluster up' 을 실행하세요."
@@ -44,6 +47,16 @@ require_cluster() {
     sleep 2
   done
   die "클러스터에 연결할 수 없습니다. 'cka cluster status' 로 상태를 확인하세요."
+}
+
+# WSL 재시작·중단된 셋업으로 애드온이 유실되면 문제 풀이가 조용히 깨진다.
+# 그래서 문제 시작·채점 전에 API 기동을 기다린 뒤 빠진 애드온을 자동 복구한다.
+# (install은 apply 기반이라 멱등 — 정상일 땐 빠른 존재 점검만 하고 넘어간다.)
+require_cluster() {
+  _wait_api
+  local repaired; repaired="$(ensure_addons)"
+  [ "${repaired:-0}" -gt 0 ] && ok "클러스터 애드온 $repaired건 자동 복구 완료."
+  return 0
 }
 
 # 문제 ID → 도메인 디렉토리

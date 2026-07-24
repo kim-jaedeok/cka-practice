@@ -36,38 +36,13 @@ info "노드 Ready 대기 중..."
 kctx wait --for=condition=Ready nodes --all --timeout=300s >/dev/null || die "노드가 Ready 상태가 되지 않습니다."
 
 step "3/8 metrics-server 설치 (kubectl top / HPA 용)"
-kctx apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml" \
-  || die "metrics-server 설치 실패"
-# kind는 kubelet 인증서가 자체서명이라 --kubelet-insecure-tls 필요 (중복 적용 방지)
-if ! kctx -n kube-system get deploy metrics-server \
-    -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q kubelet-insecure-tls; then
-  kctx -n kube-system patch deployment metrics-server --type=json \
-    -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
-    >/dev/null || warn "metrics-server patch 실패"
-fi
+addon_install_metrics_server || die "metrics-server 설치 실패"
 
 step "4/8 ingress-nginx 설치 (kind provider)"
-kctx apply -f "https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml" \
-  || die "ingress-nginx 설치 실패"
-# 컨트롤러를 control-plane(ingress-ready, hostPort 80→호스트 8080 매핑 노드)에 고정
-kctx -n ingress-nginx patch deploy ingress-nginx-controller --type=strategic -p '{
-  "spec":{"template":{"spec":{
-    "nodeSelector":{"ingress-ready":"true","kubernetes.io/os":"linux"},
-    "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]
-  }}}}' >/dev/null || warn "ingress-nginx nodeSelector patch 실패"
+addon_install_ingress_nginx || die "ingress-nginx 설치 실패"
 
 step "5/8 Gateway API CRD 설치 ($GATEWAY_API_VERSION)"
-kctx apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$GATEWAY_API_VERSION/standard-install.yaml" \
-  || die "Gateway API CRD 설치 실패"
-# 문제에서 참조할 GatewayClass (컨트롤러는 두지 않음 — 스펙 작성 연습용)
-kctx apply -f - <<'EOF' >/dev/null
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: nginx
-spec:
-  controllerName: example.com/nginx-gateway-controller
-EOF
+addon_install_gateway_api || die "Gateway API CRD 설치 실패"
 
 step "6/8 helm 설치"
 export PATH="$HOME/.local/bin:$PATH"
@@ -93,30 +68,7 @@ for node in "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${
 done
 
 step "8/8 채점용 상주 파드(cka-system/grader-client) + 대기"
-kctx apply -f - <<'EOF' >/dev/null
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: cka-system
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: grader-client
-  namespace: cka-system
-spec:
-  replicas: 1
-  selector:
-    matchLabels: {app: grader-client}
-  template:
-    metadata:
-      labels: {app: grader-client}
-    spec:
-      containers:
-        - name: client
-          image: busybox:1.36
-          command: ["sleep", "infinity"]
-EOF
+addon_install_grader_client || die "grader-client 설치 실패"
 
 info "핵심 컴포넌트 기동 대기 중..."
 kctx -n kube-system rollout status deploy/coredns --timeout=180s >/dev/null || warn "coredns 대기 시간 초과"

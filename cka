@@ -22,8 +22,8 @@ ${C_BLD}cka — CKA 시험 연습 CLI${C_RST}
   cka exam [status|question <n>|finish|abort]
                            모의고사 (17문제 / 2시간 / 성적표)
   cka web [port]           웹 스플릿 뷰 (왼쪽 지문 / 오른쪽 터미널, 기본 7681)
-  cka cluster up|down|status
-                           연습용 kind 클러스터 관리
+  cka cluster up|down|reset|doctor|status
+                           연습용 kind 클러스터 관리 (doctor: 애드온 점검·복구)
 
   domain: troubleshooting | cluster-architecture | services-networking
         | workloads-scheduling | storage
@@ -68,11 +68,55 @@ cmd_list() {
   printf '\n'
 }
 
+# 애드온 상태를 점검하고 빠진 것만 복구한다 (읽기 전용 코어 점검 포함)
+cmd_doctor() {
+  _wait_api
+  printf '\n%s\n' "${C_BLD}── cka cluster doctor ──────────────────────────────${C_RST}"
+
+  # 코어(자가치유 대상 아님) — 상태만 보고한다
+  local n_ready n_total
+  n_ready="$(kctx get nodes --no-headers 2>/dev/null | grep -c ' Ready ')"
+  n_total="$(kctx get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "${n_ready:-0}" = "${n_total:-0}" ] && [ "${n_total:-0}" -gt 0 ]; then
+    ok "nodes Ready ($n_ready/$n_total)"
+  else
+    warn "nodes Ready ($n_ready/$n_total) — 노드 상태 확인 필요"
+  fi
+  if kctx -n kube-system get deploy coredns >/dev/null 2>&1; then ok "coredns"; else warn "coredns 없음"; fi
+  if kctx get sc >/dev/null 2>&1 && [ -n "$(kctx get sc --no-headers 2>/dev/null)" ]; then ok "StorageClass"; else warn "StorageClass 없음"; fi
+  if command -v helm >/dev/null 2>&1; then ok "helm ($(helm version --short 2>/dev/null))"; else warn "helm PATH에 없음 (바이너리는 ~/.local/bin/helm 일 수 있음)"; fi
+
+  # 자가치유 대상 애드온 — 점검 후 빠진 것만 복구
+  printf '%s\n' "──────────────────────────────────────────────────"
+  local entry key human repaired=0
+  for entry in "${CKA_ADDONS[@]}"; do
+    key="${entry%%|*}"; human="${entry#*|}"
+    if "addon_ok_$key"; then
+      ok "$human"
+    else
+      warn "$human 없음 → 재설치"
+      if "addon_install_$key" >/dev/null 2>&1; then
+        ok "$human 재설치 완료"; repaired=$((repaired + 1))
+      else
+        err "$human 재설치 실패 — 'cka cluster up' 을 직접 실행해 보세요."
+      fi
+    fi
+  done
+  printf '%s\n' "──────────────────────────────────────────────────"
+  if [ "$repaired" -eq 0 ]; then
+    ok "모든 애드온 정상. 복구할 항목 없음."
+  else
+    ok "애드온 $repaired건 복구 완료."
+  fi
+  printf '\n'
+}
+
 cmd_cluster() {
   case "${1:-status}" in
     up)     bash "$CKA_ROOT/cluster/setup-cluster.sh" ;;
     down)   kind delete cluster --name "$CKA_CLUSTER_NAME" ;;
     reset)  bash "$CKA_ROOT/cluster/reset-cluster.sh" ;;
+    doctor) cmd_doctor ;;
     status)
       require_cluster
       kctx get nodes
@@ -80,7 +124,7 @@ cmd_cluster() {
       kctx get pods -n kube-system -o wide | head -20
       kctx get pods -n cka-system 2>/dev/null || true
       ;;
-    *) die "cka cluster up|down|reset|status" ;;
+    *) die "cka cluster up|down|reset|doctor|status" ;;
   esac
 }
 
