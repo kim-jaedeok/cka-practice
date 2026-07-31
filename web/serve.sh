@@ -38,9 +38,11 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# 오른쪽 패널: 실제 bash 터미널 (repo 디렉토리 + cka를 PATH에 올린 셸), 루프백만 바인딩
+# 오른쪽 패널: 실제 bash 터미널, 루프백만 바인딩
+# PATH에 repo 루트(cka 명령) + bin/(ssh 래퍼 — 실전처럼 `ssh cka-worker` 접속)를 올린다.
+chmod +x "$CKA_ROOT/bin/ssh" 2>/dev/null || true
 CKA_ROOT="$CKA_ROOT" "$TTYD_BIN" -p "$TTYD_PORT" -i 127.0.0.1 -W \
-  bash -lc "cd '$CKA_ROOT'; export PATH='$CKA_ROOT':\"\$PATH\"; exec bash" \
+  bash -lc "cd '$CKA_ROOT'; export PATH='$CKA_ROOT/bin':'$CKA_ROOT':\"\$PATH\"; exec bash" \
   >/dev/null 2>&1 &
 PIDS+=($!)
 

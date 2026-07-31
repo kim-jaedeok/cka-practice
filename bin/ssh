@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# cka-practice — 실전 시험과 동일하게 `ssh <node>` 로 노드에 접속하기 위한 래퍼.
+#
+# 실제 CKA 시험은 노드에 ssh로 들어가지만, kind 연습 환경에는 sshd가 없어
+# `docker exec` 를 써야 한다. 손에 익는 명령이 달라지면 실전에서 손해이므로
+# 이 래퍼를 PATH 앞에 두어 `ssh cka-worker` 가 그대로 동작하게 한다.
+#
+#   ssh cka-worker                 → docker exec -it cka-worker bash
+#   ssh cka-worker systemctl ...   → docker exec -i cka-worker bash -c '...'
+#   ssh worker2                    → 클러스터 접두사 자동 보정 (cka-worker2)
+#   ssh user@host / 그 외 호스트   → 진짜 /usr/bin/ssh 로 위임
+set -uo pipefail
+
+CKA_CLUSTER_NAME="${CKA_CLUSTER_NAME:-cka}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# PATH에서 이 래퍼가 아닌 진짜 ssh 실행 파일을 찾는다.
+real_ssh() {
+  local dir
+  IFS=: read -r -a _paths <<< "$PATH"
+  for dir in "${_paths[@]}" /usr/bin /bin; do
+    [ -n "$dir" ] || continue
+    [ "$(cd "$dir" 2>/dev/null && pwd)" = "$SELF_DIR" ] && continue
+    [ -x "$dir/ssh" ] && { printf '%s' "$dir/ssh"; return 0; }
+  done
+  return 1
+}
+
+delegate() {
+  local bin
+  bin="$(real_ssh)" || {
+    printf 'ssh: 이 호스트로의 접속은 지원하지 않습니다 (openssh-client 미설치).\n' >&2
+    exit 127
+  }
+  exec "$bin" "$@"
+}
+
+# 컨테이너가 우리 kind 클러스터의 노드인지 확인 (kind가 붙이는 라벨로 판정)
+is_cka_node() {
+  [ -n "$1" ] || return 1
+  command -v docker >/dev/null 2>&1 || return 1
+  [ "$(docker inspect -f '{{index .Config.Labels "io.x-k8s.kind.cluster"}}' "$1" 2>/dev/null)" \
+    = "$CKA_CLUSTER_NAME" ]
+}
+
+# ── 인자 파싱: 옵션을 건너뛰고 첫 번째 비옵션 인자(접속 대상)를 찾는다 ──
+# 값을 따로 받는 ssh 옵션들 (-o Foo=bar 처럼 다음 인자를 소비)
+opt_takes_arg() {
+  case "$1" in
+    -b|-c|-D|-E|-e|-F|-I|-i|-J|-L|-l|-m|-O|-o|-p|-Q|-R|-S|-W|-w) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+args=("$@")
+target=""; target_idx=-1
+i=0
+while [ "$i" -lt "${#args[@]}" ]; do
+  a="${args[$i]}"
+  case "$a" in
+    -*)
+      if opt_takes_arg "$a"; then
+        i=$((i + 2))                      # -o value 형태
+      elif [ "${#a}" -gt 2 ] && opt_takes_arg "${a:0:2}"; then
+        i=$((i + 1))                      # -ovalue 형태 (값이 붙어 있음)
+      else
+        i=$((i + 1))                      # 플래그 (-t, -q, -v ...)
+      fi
+      ;;
+    *) target="$a"; target_idx="$i"; break ;;
+  esac
+done
+
+[ -n "$target" ] || delegate "$@"
+
+host="${target#*@}"                        # user@host → host
+
+# cka-worker / worker (접두사 생략) 둘 다 허용
+node=""
+for cand in "$host" "${CKA_CLUSTER_NAME}-${host}"; do
+  if is_cka_node "$cand"; then node="$cand"; break; fi
+done
+
+if [ -z "$node" ]; then
+  # 노드 이름 꼴인데 못 찾았으면 진짜 ssh로 넘겨도 실패한다 — 원인을 알려준다.
+  case "$host" in
+    "${CKA_CLUSTER_NAME}-"*|control-plane|worker|worker2)
+      printf 'ssh: 연습 클러스터 노드 %s 를 찾을 수 없습니다.\n' "$host" >&2
+      printf '     클러스터가 떠 있는지 확인하세요:  ./cka cluster status\n' >&2
+      exit 255
+      ;;
+  esac
+  delegate "$@"
+fi
+
+# 대상 뒤에 남은 인자들 = 노드에서 실행할 원격 명령
+remote=("${args[@]:$((target_idx + 1))}")
+
+if [ "${#remote[@]}" -eq 0 ]; then
+  if [ -t 0 ] && [ -t 1 ]; then
+    exec docker exec -it "$node" bash
+  fi
+  exec docker exec -i "$node" bash
+fi
+
+# 실제 ssh는 원격 명령을 로그인 셸에 문자열로 넘긴다 — 동일하게 맞춘다.
+exec docker exec -i "$node" bash -c "${remote[*]}"

@@ -12,5 +12,4 @@ The kubelet on `cka-worker` reads static Pod manifests from
 Afterwards verify with kubectl that the mirror Pod
 `static-web-cka-worker` is Running.
 
-Lab hint: in this practice environment access the node with
-`docker exec -it cka-worker bash` (in the real exam: `ssh cka-worker`).
+Lab hint: access the node with `ssh cka-worker`.

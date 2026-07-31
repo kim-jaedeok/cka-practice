@@ -7,6 +7,5 @@ Node `cka-worker2` is reported as `NotReady`.
 3. Make sure the responsible service is running **and enabled** so it
    survives a node reboot.
 
-Lab hint: access the node with `docker exec -it cka-worker2 bash`
-(in the real exam: `ssh cka-worker2`). Standard tools like `systemctl`
-and `journalctl` are available on the node.
+Lab hint: access the node with `ssh cka-worker2`. Standard tools like
+`systemctl` and `journalctl` are available on the node.

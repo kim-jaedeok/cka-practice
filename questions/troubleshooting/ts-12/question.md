@@ -9,6 +9,5 @@ keep running fine.
 2. Fix the problem on the control plane node so that scheduling works again.
 3. The Pods of `sched-test` must become Running.
 
-Lab hint: access the control plane with `docker exec -it cka-control-plane bash`
-(in the real exam: `ssh` to the control plane node). Remember where kubelet
-reads static Pod manifests from.
+Lab hint: access the control plane with `ssh cka-control-plane`. Remember
+where kubelet reads static Pod manifests from.

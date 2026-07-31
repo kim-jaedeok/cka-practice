@@ -85,6 +85,15 @@ cmd_doctor() {
   if kctx -n kube-system get deploy coredns >/dev/null 2>&1; then ok "coredns"; else warn "coredns 없음"; fi
   if kctx get sc >/dev/null 2>&1 && [ -n "$(kctx get sc --no-headers 2>/dev/null)" ]; then ok "StorageClass"; else warn "StorageClass 없음"; fi
   if command -v helm >/dev/null 2>&1; then ok "helm ($(helm version --short 2>/dev/null))"; else warn "helm PATH에 없음 (바이너리는 ~/.local/bin/helm 일 수 있음)"; fi
+  if ssh_wrapper_ok; then
+    if ensure_shell_path; then
+      ok "ssh 래퍼 (~/.bashrc PATH 등록 — 새 셸부터 'ssh cka-worker' 사용 가능)"
+    else
+      ok "ssh 래퍼 (PATH 등록됨)"
+    fi
+  else
+    warn "bin/ssh 래퍼 실행 불가 — 'chmod +x bin/ssh' 후 다시 시도하세요."
+  fi
   if node_editors_ok; then
     ok "노드 편집기 (vim·nano)"
   else

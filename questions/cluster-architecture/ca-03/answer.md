@@ -21,8 +21,9 @@ kubectl -n kube-system exec etcd-cka-control-plane -- etcdutl \
 ## 해설 (한국어)
 
 - **실제 시험**에서는 control plane 노드에 `ssh <node>`로 접속해 노드에 설치된
-  etcdctl을 직접 실행한다. 이 연습 환경(kind)에는 SSH가 없어 etcd Pod 안에서
-  실행하지만, **명령과 플래그는 완전히 동일**하다.
+  etcdctl을 직접 실행한다. 이 연습 환경도 `ssh cka-control-plane` 접속은 되지만
+  kind 노드 이미지에 etcdctl 바이너리가 없어 etcd Pod 안에서 실행한다 —
+  **명령과 플래그는 완전히 동일**하다.
 - 인증서 경로는 외우기보다 **찾는 법**을 익힌다:
   `cat /etc/kubernetes/manifests/etcd.yaml | grep -E "cert|key|listen-client"` —
   etcd static pod 매니페스트에 모든 플래그가 적혀 있다.

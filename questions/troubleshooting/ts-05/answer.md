@@ -10,7 +10,7 @@ kubectl describe node cka-worker2 | grep -A5 Conditions
 #   Ready  Unknown ... Kubelet stopped posting node status.
 
 # 노드 접속 후 kubelet 상태 확인
-docker exec -it cka-worker2 bash        # (실전: ssh cka-worker2)
+ssh cka-worker2
 systemctl status kubelet                #   inactive (dead)
 journalctl -u kubelet | tail -20        #   이상 로그 없음 → 단순 정지
 ```

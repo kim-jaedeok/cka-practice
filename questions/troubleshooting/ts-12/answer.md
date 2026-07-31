@@ -15,7 +15,7 @@ kubectl -n kube-system logs kube-scheduler-cka-control-plane 2>&1 | tail -3
 # 또는 노드에서 컨테이너 로그 직접 확인
 
 # 3. static pod 매니페스트 검사
-docker exec -it cka-control-plane bash      # (실전: ssh)
+ssh cka-control-plane
 cat /etc/kubernetes/manifests/kube-scheduler.yaml | head -20
 #   command:
 #     - kube-schedulerx        ← 오타!
@@ -42,14 +42,14 @@ kubectl -n sched-check get pods                     # Running으로 전환
 
 ```bash
 # (A) sed로 편집기 없이 직접 치환 — 한 줄 오타엔 이게 가장 빠르고 안전
-docker exec cka-control-plane \
-  sed -i 's/kube-schedulerx/kube-scheduler/' /etc/kubernetes/manifests/kube-scheduler.yaml
+ssh cka-control-plane \
+  "sed -i 's/kube-schedulerx/kube-scheduler/' /etc/kubernetes/manifests/kube-scheduler.yaml"
 
-# (B) 컨테이너 안에 편집기 설치 후 vi 사용
-docker exec -it cka-control-plane bash
+# (B) 노드 안에 편집기 설치 후 vi 사용
+ssh cka-control-plane
 apt-get update && apt-get install -y vim   # 또는 nano
 
-# (C) 호스트로 꺼내 편집기(VSCode 등)로 고치고 되돌리기 — Windows 호스트에 편함
+# (C) 호스트로 꺼내 편집기(VSCode 등)로 고치고 되돌리기 — 연습 환경 전용 편법
 docker cp cka-control-plane:/etc/kubernetes/manifests/kube-scheduler.yaml ./ks.yaml
 #   ks.yaml 수정 후
 docker cp ./ks.yaml cka-control-plane:/etc/kubernetes/manifests/kube-scheduler.yaml

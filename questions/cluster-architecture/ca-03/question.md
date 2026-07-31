@@ -12,7 +12,7 @@ Create a backup of the cluster's etcd database.
 2. Verify the snapshot with `etcdutl snapshot status` and save the full
    output to `~/cka/ca-03/status.txt`.
 
-Lab hint: in this practice environment there is no SSH — `etcdctl` and
-`etcdutl` are available **inside the etcd Pod**:
+Lab hint: `ssh cka-control-plane` works, but this lab node has no `etcdctl`
+binary — `etcdctl` and `etcdutl` are available **inside the etcd Pod**:
 `kubectl -n kube-system exec etcd-cka-control-plane -- etcdctl ...`
 (`/var/lib/etcd` inside the Pod is the same directory as on the node.)

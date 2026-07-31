@@ -14,6 +14,13 @@ case ":$PATH:" in
   *) PATH="$HOME/.local/bin:$PATH" ;;
 esac
 
+# bin/ 의 래퍼(ssh 등)를 항상 우선한다 — setup/solve/grade 스크립트에서도 동일하게 동작
+case ":$PATH:" in
+  *":$CKA_ROOT/bin:"*) : ;;
+  *) PATH="$CKA_ROOT/bin:$PATH" ;;
+esac
+export PATH
+
 if [ -t 1 ]; then
   C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YLW=$'\033[33m'; C_BLU=$'\033[34m'
   C_BLD=$'\033[1m'; C_RST=$'\033[0m'
@@ -31,6 +38,30 @@ die()  { err "$*"; exit 1; }
 kctx() { kubectl --context "$CKA_CONTEXT" "$@"; }
 
 cluster_ready() { kctx get nodes >/dev/null 2>&1; }
+
+# ── ssh 래퍼 (실전과 동일한 노드 접속 명령) ──────────────────────
+# 실전 시험은 `ssh <node>`로 노드에 들어가지만 kind 노드에는 sshd가 없다.
+# bin/ssh 래퍼가 docker exec으로 바꿔 실행하므로, PATH에만 올라가 있으면
+# 지문·정답지·실제 풀이 모두 실전과 같은 `ssh <node>`를 쓸 수 있다.
+CKA_RC_BEGIN='# >>> cka-practice >>>'
+CKA_RC_END='# <<< cka-practice <<<'
+
+ssh_wrapper_ok() { [ -x "$CKA_ROOT/bin/ssh" ]; }
+
+# ~/.bashrc 에 bin/ 경로를 멱등하게 등록한다 (변경했으면 0, 이미 최신이면 1).
+# 웹 터미널은 serve.sh가 PATH를 직접 넣지만, 사용자가 직접 연 WSL 셸에서도
+# `ssh cka-worker`가 되도록 로그인 셸 설정에 한 줄을 심어 둔다.
+ensure_shell_path() {
+  local rc="$HOME/.bashrc"
+  local line="export PATH=\"$CKA_ROOT/bin:\$PATH\"   # cka: ssh <node> 래퍼"
+  [ -e "$rc" ] || : > "$rc"
+  if grep -Fq "$CKA_RC_BEGIN" "$rc" 2>/dev/null; then
+    grep -Fqx "$line" "$rc" && return 1                 # 이미 동일 내용
+    sed -i "\|^$CKA_RC_BEGIN\$|,\|^$CKA_RC_END\$|d" "$rc"   # 옛 블록 제거 후 재작성
+  fi
+  printf '\n%s\n%s\n%s\n' "$CKA_RC_BEGIN" "$line" "$CKA_RC_END" >> "$rc"
+  return 0
+}
 
 # ── 노드 편집기 (연습 환경 편의) ──────────────────────────────────
 # kind 노드 이미지는 최소 구성이라 vi/vim/nano가 없다. 실전 CKA 시험 노드에는

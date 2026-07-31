@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CKA 연습 클러스터 셋업: kind 3노드 + Calico + metrics-server + ingress-nginx
-# + Gateway API CRD + helm + 이미지 프리로드 + 채점용 상주 파드
+# + Gateway API CRD + helm + 이미지 프리로드 + ssh 래퍼 + 채점용 상주 파드
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,7 +57,7 @@ else
   info "helm 설치 완료: $("$HOME/.local/bin/helm" version --short 2>/dev/null || echo ok)"
 fi
 
-step "7/8 노드 준비: 이미지 프리로드 + 편집기 설치"
+step "7/8 노드 준비: 이미지 프리로드 + 편집기 + ssh 래퍼"
 # docker 29의 containerd 이미지 스토어와 'kind load docker-image'가 호환되지 않아
 # 각 노드 안에서 crictl pull로 직접 받는다
 for node in "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${CKA_CLUSTER_NAME}-worker2"; do
@@ -70,6 +70,18 @@ done
 info "노드 편집기(vim·nano) 설치 중..."
 installed_editors="$(install_node_editors)"
 info "노드 편집기 설치 완료 (${installed_editors}개 노드 신규 설치)"
+
+# 실전과 같은 `ssh <node>` 접속을 위해 bin/ssh 래퍼를 로그인 셸 PATH에 등록
+chmod +x "$CKA_ROOT/bin/ssh" 2>/dev/null || true
+if ssh_wrapper_ok; then
+  if ensure_shell_path; then
+    info "ssh 래퍼를 ~/.bashrc PATH에 등록했습니다 (새 셸부터 'ssh cka-worker' 사용 가능)."
+  else
+    info "ssh 래퍼가 이미 ~/.bashrc PATH에 등록되어 있습니다."
+  fi
+else
+  warn "bin/ssh 래퍼를 실행할 수 없습니다 — 노드 접속은 'docker exec -it <노드> bash'로 대체하세요."
+fi
 
 step "8/8 채점용 상주 파드(cka-system/grader-client) + 대기"
 addon_install_grader_client || die "grader-client 설치 실패"

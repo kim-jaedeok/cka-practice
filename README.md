@@ -46,6 +46,22 @@ cka reset ts-03           # 환경 초기화 후 재도전
 
 파일 제출형 문제(로그 추출 등)의 답안 파일은 `~/cka/<문제id>/`에 저장한다.
 
+### 노드 접속 — 실전과 동일하게 `ssh`
+
+kind 노드에는 sshd가 없지만, `bin/ssh` 래퍼가 `docker exec`으로 바꿔 실행하므로
+실전 시험과 똑같은 명령을 쓴다.
+
+```bash
+ssh cka-worker                        # 노드 셸 진입
+ssh cka-control-plane systemctl status kubelet   # 원격 명령 1회 실행
+ssh worker2                           # 접두사 생략 가능 (= cka-worker2)
+```
+
+- `./cka cluster up`(또는 `./cka cluster doctor`)이 `~/.bashrc`에 PATH 한 줄을
+  등록한다 — **등록 후 새로 연 셸부터** 적용된다. `cka web` 터미널은 즉시 적용.
+- 연습 클러스터 노드가 아닌 호스트는 원래의 `ssh`로 그대로 위임되므로,
+  평소 쓰던 SSH 접속에는 영향이 없다.
+
 ## 웹 스플릿 뷰 (지문이 안 가려지게)
 
 터미널 하나로 풀면 명령을 칠수록 지문이 위로 밀려 가려진다. 웹 UI는
@@ -77,6 +93,7 @@ cka exam abort            # 중단
 
 ```
 cka                        # CLI (web 서브커맨드 포함)
+bin/ssh                    # 실전과 같은 `ssh <노드>` 접속 래퍼 (docker exec으로 변환)
 web/                       # 웹 스플릿 뷰 (server.py 백엔드 + index.html + serve.sh)
 cluster/                   # kind 클러스터 + 애드온 셋업
 lib/                       # 공통 함수 + 채점 러너 (criterion 기반)
@@ -99,6 +116,6 @@ tests/selftest.sh --domain storage  # 도메인 단위 검증
 
 ## 실제 시험과의 차이
 
-노드 접속은 `ssh` 대신 `docker exec -it <노드> bash`, etcdctl은 etcd Pod 안에서
-실행(명령 동일), 클러스터 버전 업그레이드는 절차 검증형으로 변형.
+노드 접속은 실전과 같은 `ssh <노드>`(내부적으로 `docker exec`로 변환하는 래퍼),
+etcdctl은 etcd Pod 안에서 실행(명령 동일), 클러스터 버전 업그레이드는 절차 검증형으로 변형.
 자세한 비교는 [docs/exam-overview.md](docs/exam-overview.md#이-연습-환경과-실제-시험의-차이) 참고.

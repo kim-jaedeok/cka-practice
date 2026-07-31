@@ -3,8 +3,8 @@
 ## 모범 답안
 
 ```bash
-# 노드 접속 (실전: ssh cka-worker / 연습 환경: docker exec)
-docker exec -it cka-worker bash
+# 노드 접속
+ssh cka-worker
 
 # 매니페스트 작성
 cat > /etc/kubernetes/manifests/static-web.yaml <<'YAML'
