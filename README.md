@@ -117,5 +117,6 @@ tests/selftest.sh --domain storage  # 도메인 단위 검증
 ## 실제 시험과의 차이
 
 노드 접속은 실전과 같은 `ssh <노드>`(내부적으로 `docker exec`로 변환하는 래퍼),
-etcdctl은 etcd Pod 안에서 실행(명령 동일), 클러스터 버전 업그레이드는 절차 검증형으로 변형.
+etcdctl·etcdutl은 실전처럼 control-plane 노드에 설치(etcd Pod exec로도 대체 가능),
+클러스터 버전 업그레이드는 절차 검증형으로 변형.
 자세한 비교는 [docs/exam-overview.md](docs/exam-overview.md#이-연습-환경과-실제-시험의-차이) 참고.

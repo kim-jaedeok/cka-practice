@@ -57,7 +57,7 @@ else
   info "helm 설치 완료: $("$HOME/.local/bin/helm" version --short 2>/dev/null || echo ok)"
 fi
 
-step "7/8 노드 준비: 이미지 프리로드 + 편집기 + ssh 래퍼"
+step "7/8 노드 준비: 이미지 프리로드 + 편집기 + etcdctl + ssh 래퍼"
 # docker 29의 containerd 이미지 스토어와 'kind load docker-image'가 호환되지 않아
 # 각 노드 안에서 crictl pull로 직접 받는다
 for node in "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${CKA_CLUSTER_NAME}-worker2"; do
@@ -70,6 +70,14 @@ done
 info "노드 편집기(vim·nano) 설치 중..."
 installed_editors="$(install_node_editors)"
 info "노드 편집기 설치 완료 (${installed_editors}개 노드 신규 설치)"
+
+# 실전 노드에는 etcdctl이 깔려 있다 — ca-03/ca-04를 Pod exec 우회 없이 풀 수 있게
+info "control-plane 노드에 etcdctl·etcdutl 설치 중..."
+if [ "$(install_node_etcdctl)" -gt 0 ]; then
+  info "etcdctl·etcdutl 설치 완료"
+else
+  info "etcdctl·etcdutl 이미 존재하거나 설치를 건너뛰었습니다"
+fi
 
 # 실전과 같은 `ssh <node>` 접속을 위해 bin/ssh 래퍼를 로그인 셸 PATH에 등록
 chmod +x "$CKA_ROOT/bin/ssh" 2>/dev/null || true

@@ -3,12 +3,24 @@
 ## 모범 답안
 
 ```bash
-kubectl -n kube-system exec etcd-cka-control-plane -- etcdutl \
-  snapshot restore /var/lib/etcd/snapshot-restore-src.db \
+ssh cka-control-plane
+
+etcdutl snapshot restore /var/lib/etcd/snapshot-restore-src.db \
   --data-dir /var/lib/etcd/restore-drill
 
 # 구조 확인
-kubectl -n kube-system exec etcd-cka-control-plane -- ls -R /var/lib/etcd/restore-drill/member
+ls -R /var/lib/etcd/restore-drill/member
+```
+
+## 대체 방식 (etcd Pod exec)
+
+노드의 etcdutl이 유실됐다면 (`cka cluster doctor`로 복구 가능) etcd Pod 안에서
+같은 명령을 실행해도 된다.
+
+```bash
+kubectl -n kube-system exec etcd-cka-control-plane -- etcdutl \
+  snapshot restore /var/lib/etcd/snapshot-restore-src.db \
+  --data-dir /var/lib/etcd/restore-drill
 ```
 
 ## 해설 (한국어)

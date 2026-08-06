@@ -92,7 +92,7 @@
 |---|---|---|
 | 클러스터 | 여러 개(문제별 전환) | kind 단일 클러스터 `kind-cka` |
 | 노드 접속 | `ssh <node>` | `ssh <node>` (bin/ssh 래퍼가 docker exec으로 변환) |
-| etcdctl | 노드에 설치됨 | etcd Pod 안에서 실행 (명령 동일) |
+| etcdctl | 노드에 설치됨 | 노드에 설치됨 (control-plane) — etcd Pod exec로도 대체 가능 |
 | 클러스터 업그레이드 | 실제 kubeadm/apt 수행 | 절차 검증형 변형 (ca-06) |
 | LoadBalancer | 클라우드 환경에 따라 | 미지원 (NodePort/Ingress로 대체) |
 | 채점 | 종료 후 일괄 | `cka grade <id>` 즉시 채점 |

@@ -74,6 +74,8 @@ cka_node_names() {
                 "${CKA_CLUSTER_NAME}-worker2"
 }
 
+cka_control_plane_node() { printf '%s' "${CKA_CLUSTER_NAME}-control-plane"; }
+
 # 모든 노드에 vi가 있으면 0(정상)
 node_editors_ok() {
   local node
@@ -95,6 +97,49 @@ install_node_editors() {
     fi
   done
   printf '%s' "$repaired"
+}
+
+# ── 노드 etcdctl·etcdutl (control-plane) ──────────────────────────
+# 실전 시험 노드에는 etcdctl이 설치돼 있어 `ssh <cp>` 후 바로 스냅샷을 뜬다.
+# kind 노드에는 없고 etcd Pod(distroless) 안에만 있어 ca-03/ca-04가 kubectl exec
+# 우회를 강요받았다. 실행 중인 etcd 이미지와 같은 버전의 릴리스를 받아 노드
+# /usr/local/bin에 심어 실전과 같은 손버릇으로 풀 수 있게 한다. 편집기 설치와
+# 마찬가지로 실패해도 Pod exec으로 대체 가능하므로 비치명적으로 처리한다.
+node_etcdctl_ok() {
+  docker exec "$(cka_control_plane_node)" sh -c \
+    'command -v etcdctl >/dev/null 2>&1 && command -v etcdutl >/dev/null 2>&1'
+}
+
+# 없을 때만 설치하고 설치했으면 1, 아니면 0을 echo(멱등).
+install_node_etcdctl() {
+  local cp img ver arch tmp
+  cp="$(cka_control_plane_node)"
+  node_etcdctl_ok 2>/dev/null && { printf '0'; return; }
+  # 실행 중인 etcd static pod 이미지에서 버전 추출: registry.k8s.io/etcd:3.5.15-0 → 3.5.15
+  img="$(kctx -n kube-system get pod "etcd-$cp" -o jsonpath='{.spec.containers[0].image}' 2>/dev/null)"
+  ver="${img##*:}"; ver="${ver%%-*}"
+  case "$ver" in
+    [0-9]*.[0-9]*.[0-9]*) : ;;
+    *) warn "etcd 이미지 버전 확인 실패 (${img:-없음}) — etcdctl 노드 설치를 건너뜁니다." >&2
+       printf '0'; return ;;
+  esac
+  case "$(docker exec "$cp" uname -m 2>/dev/null)" in
+    aarch64|arm64) arch=arm64 ;;
+    *) arch=amd64 ;;
+  esac
+  # 호스트에서 받아 docker cp — 노드의 curl/tar/네트워크 유무에 의존하지 않는다
+  tmp="$(mktemp -d)"
+  if curl -fsSL "https://github.com/etcd-io/etcd/releases/download/v${ver}/etcd-v${ver}-linux-${arch}.tar.gz" \
+        | tar -xz -C "$tmp" 2>/dev/null \
+     && docker cp "$tmp/etcd-v${ver}-linux-${arch}/etcdctl" "$cp:/usr/local/bin/etcdctl" >/dev/null 2>&1 \
+     && docker cp "$tmp/etcd-v${ver}-linux-${arch}/etcdutl" "$cp:/usr/local/bin/etcdutl" >/dev/null 2>&1 \
+     && docker exec "$cp" chmod +x /usr/local/bin/etcdctl /usr/local/bin/etcdutl 2>/dev/null; then
+    rm -rf "$tmp"; printf '1'
+  else
+    rm -rf "$tmp"
+    warn "$cp etcdctl·etcdutl 설치 실패 (네트워크 확인). etcd Pod exec로 대체 가능." >&2
+    printf '0'
+  fi
 }
 
 # 애드온 설치·점검 함수 (metrics-server·ingress-nginx·gateway-api·grader-client)
