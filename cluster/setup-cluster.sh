@@ -1,63 +1,118 @@
 #!/usr/bin/env bash
 # CKA 연습 클러스터 셋업: kind 3노드 + Calico + metrics-server + ingress-nginx
-# + Gateway API CRD + helm + 이미지 프리로드 + ssh 래퍼 + 채점용 상주 파드
+# + Gateway API CRD + helm + Cloud Provider KIND + 이미지 프리로드 + ssh 래퍼
+# + 채점용 상주 파드
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
-CALICO_VERSION="v3.32.1"
-GATEWAY_API_VERSION="v1.6.0"
-PRELOAD_IMAGES=(nginx:1.28 nginx:1.29 busybox:1.36)
+IFS=',' read -r -a PRELOAD_IMAGES <<< "$CKA_PRELOAD_IMAGES_CSV"
 
 step() { printf '\n%s\n' "${C_BLD}── $* ──${C_RST}"; }
 
-for bin in docker kind kubectl curl; do
+for bin in docker kubectl curl sha256sum tar install flock nohup; do
   command -v "$bin" >/dev/null || die "$bin 이 설치되어 있지 않습니다."
 done
 docker info >/dev/null 2>&1 || die "docker 데몬에 연결할 수 없습니다."
 
-step "1/8 kind 클러스터 생성 (name: $CKA_CLUSTER_NAME)"
+ensure_locked_kind
+actual_kind_version="$(kind version 2>/dev/null | awk '{print $2; exit}')"
+[ "$actual_kind_version" = "$KIND_VERSION" ] \
+  || die "kind 버전 불일치: actual=${actual_kind_version:-unknown}, lock=$KIND_VERSION"
+
+# checksum 검증이 필요한 다운로드와 Helm 압축 해제에만 쓰는 임시 디렉토리.
+SETUP_TMP_DIR="$(mktemp -d /tmp/cka-setup.XXXXXX)" || die "임시 디렉토리 생성 실패"
+cleanup_setup_tmp() {
+  case "$SETUP_TMP_DIR" in
+    /tmp/cka-setup.*) rm -rf -- "$SETUP_TMP_DIR" ;;
+    *) warn "예상 밖 임시 경로라 삭제하지 않습니다: $SETUP_TMP_DIR" ;;
+  esac
+}
+trap cleanup_setup_tmp EXIT
+
+download_locked() { # download_locked <url> <sha256> <destination>
+  local url="$1" sha="$2" dest="$3"
+  curl -fsSL "$url" -o "$dest" || die "다운로드 실패: $url"
+  printf '%s  %s\n' "$sha" "$dest" | sha256sum -c - >/dev/null \
+    || die "checksum 불일치: $url"
+}
+
+step "1/9 kind 클러스터 생성 (name: $CKA_CLUSTER_NAME)"
 if kind get clusters 2>/dev/null | grep -qx "$CKA_CLUSTER_NAME"; then
-  info "클러스터가 이미 존재합니다. 생성 단계는 건너뜁니다."
+  info "클러스터가 이미 존재합니다. lock 일치 여부를 검사합니다."
+  recover_cluster_nodes_ordered \
+    || die "기존 클러스터의 identity 검증 또는 ordered recovery에 실패했습니다."
+  _wait_api
+  cluster_matches_version_lock \
+    || die "기존 클러스터가 versions.lock.yaml과 다릅니다. './cka cluster reset'으로 명시적으로 재생성하세요."
 else
-  kind create cluster --config "$SCRIPT_DIR/kind-config.yaml" || die "kind 클러스터 생성 실패"
+  # A newly created cluster is a new object generation.  Backups, fingerprints,
+  # grades, and exam state from a deleted predecessor must never be replayed
+  # into it (static control-plane manifests contain generation-specific IPs).
+  for state_child in backup question-data status exam; do
+    state_subdir_clear "$state_child" \
+      || die "이전 클러스터 상태를 안전하게 정리하지 못했습니다: $state_child"
+  done
+  kind create cluster --image "$KIND_NODE_IMAGE" --config "$SCRIPT_DIR/kind-config.yaml" \
+    || die "kind 클러스터 생성 실패"
+  cluster_matches_version_lock || die "생성된 클러스터가 versions.lock.yaml과 일치하지 않습니다."
 fi
 
-# WSL 재시작 시 컨테이너가 자동 복구되도록 restart 정책 강화
-docker update --restart=unless-stopped \
-  "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${CKA_CLUSTER_NAME}-worker2" \
-  >/dev/null 2>&1 || true
+# Docker daemon 재기동 시 worker가 먼저 IP를 확보하고, 다음 mutable 명령이
+# control-plane과 worker2를 검증된 순서로 복구하도록 restart policy를 고정한다.
+configure_cluster_restart_policies \
+  || die "KIND 노드 restart policy 설정 또는 검증에 실패했습니다."
 
-step "2/8 Calico CNI 설치 ($CALICO_VERSION)"
-kctx apply -f "https://raw.githubusercontent.com/projectcalico/calico/$CALICO_VERSION/manifests/calico.yaml" \
+step "2/9 Calico CNI 설치 ($CALICO_VERSION)"
+kctx apply -f "$CALICO_MANIFEST_URL" \
   || die "Calico 설치 실패"
 info "노드 Ready 대기 중..."
 kctx wait --for=condition=Ready nodes --all --timeout=300s >/dev/null || die "노드가 Ready 상태가 되지 않습니다."
 
-step "3/8 metrics-server 설치 (kubectl top / HPA 용)"
+step "3/9 metrics-server 설치 (kubectl top / HPA 용)"
+metrics_manifest="$SETUP_TMP_DIR/metrics-server-components.yaml"
+download_locked "$METRICS_SERVER_URL" "$METRICS_SERVER_MANIFEST_SHA256" "$metrics_manifest"
+METRICS_SERVER_URL="$metrics_manifest"
+export METRICS_SERVER_URL
 addon_install_metrics_server || die "metrics-server 설치 실패"
 
-step "4/8 ingress-nginx 설치 (kind provider)"
+step "4/9 ingress-nginx 설치 (kind provider)"
 addon_install_ingress_nginx || die "ingress-nginx 설치 실패"
 
-step "5/8 Gateway API CRD 설치 ($GATEWAY_API_VERSION)"
+step "5/9 Gateway API CRD 설치 ($GATEWAY_API_VERSION)"
 addon_install_gateway_api || die "Gateway API CRD 설치 실패"
 
-step "6/8 helm 설치"
+step "6/9 helm 설치"
 export PATH="$HOME/.local/bin:$PATH"
-if command -v helm >/dev/null; then
-  info "helm이 이미 설치되어 있습니다: $(command -v helm)"
+actual_helm_version="$(helm version --template '{{.Version}}' 2>/dev/null || true)"
+if [ "$actual_helm_version" = "$HELM_VERSION" ]; then
+  info "lock 버전 Helm이 이미 설치되어 있습니다: $(command -v helm) ($HELM_VERSION)"
 else
+  case "$(uname -m)" in
+    x86_64|amd64) helm_arch=amd64; helm_sha="$HELM_LINUX_AMD64_SHA256" ;;
+    aarch64|arm64) helm_arch=arm64; helm_sha="$HELM_LINUX_ARM64_SHA256" ;;
+    *) die "지원하지 않는 Helm 설치 아키텍처: $(uname -m)" ;;
+  esac
+  helm_archive="$SETUP_TMP_DIR/helm-${HELM_VERSION}-linux-${helm_arch}.tar.gz"
+  download_locked "https://get.helm.sh/helm-${HELM_VERSION}-linux-${helm_arch}.tar.gz" \
+    "$helm_sha" "$helm_archive"
+  tar -xzf "$helm_archive" -C "$SETUP_TMP_DIR" \
+    || die "Helm 압축 해제 실패"
   mkdir -p "$HOME/.local/bin"
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
-    | HELM_INSTALL_DIR="$HOME/.local/bin" USE_SUDO=false PATH="$HOME/.local/bin:$PATH" bash \
-    || true  # 설치 스크립트의 마지막 verify가 PATH 문제로 실패할 수 있어 바이너리로 직접 확인
-  [ -x "$HOME/.local/bin/helm" ] || command -v helm >/dev/null || die "helm 설치 실패"
-  info "helm 설치 완료: $("$HOME/.local/bin/helm" version --short 2>/dev/null || echo ok)"
+  install -m 0755 "$SETUP_TMP_DIR/linux-${helm_arch}/helm" "$HOME/.local/bin/helm" \
+    || die "Helm 바이너리 설치 실패"
+  actual_helm_version="$("$HOME/.local/bin/helm" version --template '{{.Version}}' 2>/dev/null || true)"
+  [ "$actual_helm_version" = "$HELM_VERSION" ] \
+    || die "설치된 Helm 버전 불일치: actual=${actual_helm_version:-unknown}, lock=$HELM_VERSION"
+  info "Helm 설치 완료: $actual_helm_version"
 fi
 
-step "7/8 노드 준비: 이미지 프리로드 + 편집기 + etcdctl + ssh 래퍼"
+step "7/9 Cloud Provider KIND 설치·기동 ($CLOUD_PROVIDER_KIND_VERSION)"
+addon_install_cloud_provider_kind || die "Cloud Provider KIND 설치 또는 시작 실패"
+addon_wait_cloud_provider_kind || die "Cloud Provider KIND process readiness/version 검증 실패"
+
+step "8/9 노드 준비: 이미지 프리로드 + 편집기 + ssh 래퍼"
 # docker 29의 containerd 이미지 스토어와 'kind load docker-image'가 호환되지 않아
 # 각 노드 안에서 crictl pull로 직접 받는다
 for node in "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${CKA_CLUSTER_NAME}-worker2"; do
@@ -71,12 +126,14 @@ info "노드 편집기(vim·nano) 설치 중..."
 installed_editors="$(install_node_editors)"
 info "노드 편집기 설치 완료 (${installed_editors}개 노드 신규 설치)"
 
-# 실전 노드에는 etcdctl이 깔려 있다 — ca-03/ca-04를 Pod exec 우회 없이 풀 수 있게
-info "control-plane 노드에 etcdctl·etcdutl 설치 중..."
-if [ "$(install_node_etcdctl)" -gt 0 ]; then
-  info "etcdctl·etcdutl 설치 완료"
+# 실전 시험은 control plane 노드의 etcdctl을 직접 쓴다 (ca-03/ca-04)
+info "control plane에 etcd·etcdctl·etcdutl 설치 중..."
+if install_node_etcdctl; then
+  info "etcd·etcdctl·etcdutl 설치 완료"
+elif node_etcdctl_ok; then
+  info "etcd·etcdctl·etcdutl 이미 설치되어 있음"
 else
-  info "etcdctl·etcdutl 이미 존재하거나 설치를 건너뛰었습니다"
+  die "etcd·etcdctl·etcdutl 설치 실패 — ca-03/ca-04 환경이 불완전합니다."
 fi
 
 # 실전과 같은 `ssh <node>` 접속을 위해 bin/ssh 래퍼를 로그인 셸 PATH에 등록
@@ -91,14 +148,16 @@ else
   warn "bin/ssh 래퍼를 실행할 수 없습니다 — 노드 접속은 'docker exec -it <노드> bash'로 대체하세요."
 fi
 
-step "8/8 채점용 상주 파드(cka-system/grader-client) + 대기"
+step "9/9 채점용 상주 파드(cka-system/grader-client) + 대기"
 addon_install_grader_client || die "grader-client 설치 실패"
 
 info "핵심 컴포넌트 기동 대기 중..."
-kctx -n kube-system rollout status deploy/coredns --timeout=180s >/dev/null || warn "coredns 대기 시간 초과"
-kctx -n kube-system rollout status deploy/metrics-server --timeout=180s >/dev/null || warn "metrics-server 대기 시간 초과"
-kctx -n ingress-nginx rollout status deploy/ingress-nginx-controller --timeout=300s >/dev/null || warn "ingress-nginx 대기 시간 초과"
-kctx -n cka-system rollout status deploy/grader-client --timeout=180s >/dev/null || warn "grader-client 대기 시간 초과"
+kctx -n kube-system rollout status deploy/coredns --timeout=180s >/dev/null \
+  || die "coredns readiness 검증 실패"
+addon_wait_metrics_server || die "metrics-server readiness/version 검증 실패"
+addon_wait_ingress_nginx || die "ingress-nginx readiness/version 검증 실패"
+addon_wait_gateway_api || die "Gateway API readiness/version 검증 실패"
+addon_wait_grader_client || die "grader-client readiness/version 검증 실패"
 
 mkdir -p "$CKA_WORK_DIR"
 

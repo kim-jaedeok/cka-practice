@@ -3,3 +3,4 @@ title: Find the top CPU-consuming Pod
 domain: troubleshooting
 points: 5
 minutes: 5
+answer_files: ["top-pod.txt"]

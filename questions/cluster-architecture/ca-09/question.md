@@ -1,15 +1,20 @@
-Solve this question on: `kubectl config use-context kind-cka`
+Connect with `ssh operator-admin`, then solve this question on the designated
+disposable controller cell.
 
-A backup operator's CustomResourceDefinition is already installed in the cluster
-(group `stable.example.com`).
+cert-manager is already installed. Work in namespace `operators`.
 
-1. Find the full name of that CRD and save the list of **all** CRD names in
-   the cluster to `~/cka/ca-09/crds.txt` (one name per line).
+1. Create a namespaced Issuer named `operator-selfsigned` that uses the
+   self-signed issuer type.
 
-2. Save the documentation of the custom resource's `spec` fields
-   (`kubectl explain`) to `~/cka/ca-09/spec.txt`.
+2. Create a Certificate named `db-api-tls` with:
+   - `secretName: db-api-tls`
+   - `commonName: db.operators.svc`
+   - exactly one DNS name: `db.operators.svc`
+   - duration `24h` and renew-before period `8h`
+   - private key algorithm RSA, size 2048
+   - usages `digital signature`, `key encipherment`, and `server auth`
+   - issuer reference `operator-selfsigned`, kind `Issuer`
 
-3. Create a custom resource of that kind:
-   - Name: `db-backup`, namespace `operators`
-   - `spec.source: /data`
-   - `spec.schedule: "0 2 * * *"`
+3. Wait until the Issuer and Certificate report `Ready=True`. Do not create
+   the TLS Secret or CertificateRequest by hand; they must be reconciled by
+   cert-manager.

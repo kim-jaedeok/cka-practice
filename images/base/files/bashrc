@@ -1,0 +1,11 @@
+case "$-" in
+  *i*) ;;
+  *) return ;;
+esac
+
+export HISTCONTROL=ignoreboth
+export PS1='candidate@base:\w\$ '
+
+printf '%s\n' \
+  'CKA base host: perform work only after entering the designated host.' \
+  'Connect with: ssh cka-target'

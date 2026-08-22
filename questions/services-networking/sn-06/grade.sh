@@ -4,16 +4,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../lib/grader.sh"
 
 grade_init sn-06
 
-criterion 1 "Pod dns-checker가 Running (busybox)" \
+criterion 1 "Pod dns-checker가 Running (busybox:1.36, sleep infinity)" \
   "pod_running dns-test dns-checker && \
-   jp_contains pod dns-checker dns-test '{.spec.containers[0].image}' busybox"
+   container_process_is pod dns-checker dns-test - busybox:1.36 sleep infinity"
 
-criterion 2 "svc.txt: web-dns 서비스 조회 결과 저장 (이름 + 서비스 IP 일치)" \
-  "file_contains \"\$CKA_WORK_DIR/sn-06/svc.txt\" 'web-dns.dns-test.svc.cluster.local' && \
-   file_contains \"\$CKA_WORK_DIR/sn-06/svc.txt\" \"\$(_jp_get svc web-dns dns-test '{.spec.clusterIP}')\""
+criterion 2 "svc.txt가 dns-checker의 web-dns nslookup 전체 stdout과 일치" \
+  "file_exact_nonblank_command_output \"\$CKA_WORK_DIR/sn-06/svc.txt\" \
+     kctx -n dns-test exec dns-checker -- \
+     nslookup web-dns.dns-test.svc.cluster.local"
 
-criterion 2 "kubernetes.txt: kubernetes 서비스 조회 결과 저장 (이름 + 서비스 IP 일치)" \
-  "file_contains \"\$CKA_WORK_DIR/sn-06/kubernetes.txt\" 'kubernetes.default.svc.cluster.local' && \
-   file_contains \"\$CKA_WORK_DIR/sn-06/kubernetes.txt\" \"\$(_jp_get svc kubernetes default '{.spec.clusterIP}')\""
+criterion 2 "kubernetes.txt가 dns-checker의 kubernetes nslookup 전체 stdout과 일치" \
+  "file_exact_nonblank_command_output \"\$CKA_WORK_DIR/sn-06/kubernetes.txt\" \
+     kctx -n dns-test exec dns-checker -- \
+     nslookup kubernetes.default.svc.cluster.local"
 
 grade_finish

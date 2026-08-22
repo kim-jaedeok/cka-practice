@@ -1,0 +1,39 @@
+# Questions that can be completed from the designated SSH target with the
+# pinned target toolset and Kubernetes API access only.
+#
+# Node-shell, etcd, kubeadm, static-Pod, and Helm questions are deliberately
+# absent.  The gated form generator refuses any ID not listed here.
+ts-01
+ts-02
+ts-03
+ts-04
+ts-06
+ts-07
+ts-08
+ts-09
+ts-10
+ca-01
+ca-02
+ca-05
+ca-08
+sn-01
+sn-02
+sn-03
+sn-06
+sn-07
+sn-08
+sn-09
+sn-10
+wl-01
+wl-02
+wl-03
+wl-04
+wl-05
+wl-06
+wl-07
+wl-08
+st-01
+st-02
+st-03
+st-04
+st-05

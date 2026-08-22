@@ -3,6 +3,8 @@
 # - podSubnet은 Calico 기본 풀(192.168.0.0/16)과 일치시킨다
 # - ingress-nginx가 control-plane의 hostPort 80/443 에 바인딩되고,
 #   호스트(WSL)에서는 localhost:8080 / localhost:8443 으로 접근한다
+# - Kubernetes/node image는 setup-cluster.sh가 versions.lock.yaml의 digest pin을
+#   kind create cluster --image 로 전달한다 (이 파일에 버전을 중복 기입하지 않는다)
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: cka

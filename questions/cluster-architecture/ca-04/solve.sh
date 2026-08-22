@@ -3,6 +3,5 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../../../lib/common.sh"
 
-kctx -n kube-system exec etcd-cka-control-plane -- etcdutl \
-  snapshot restore /var/lib/etcd/snapshot-restore-src.db \
-  --data-dir /var/lib/etcd/restore-drill
+ssh cka-control-plane "etcdutl snapshot restore /var/lib/etcd/snapshot-restore-src.db \
+  --data-dir /var/lib/etcd/restore-drill"

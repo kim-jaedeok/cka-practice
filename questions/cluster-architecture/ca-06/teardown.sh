@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# drain 상태를 원복한다 (다른 문제에 영향 방지)
 set -uo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/../../../lib/common.sh"
-kctx uncordon cka-worker2 >/dev/null 2>&1 || true
+source "$(dirname "${BASH_SOURCE[0]}")/../../../lib/cell.sh"
+
+if cell_activate ca-06 kubeadm-upgrade >/dev/null 2>&1; then
+  kctx uncordon "$CKA_CELL_NODE_WORKER2" >/dev/null 2>&1 || true
+  kctx delete namespace node-upgrade --ignore-not-found --wait=false \
+    >/dev/null 2>&1 || true
+fi

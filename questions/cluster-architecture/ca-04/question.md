@@ -13,4 +13,5 @@ As a **restore drill**, restore this snapshot into a NEW data directory
 2. Verify the restored directory contains the etcd member structure
    (`member/snap`, `member/wal`).
 
-Run `etcdutl` on the control plane node — connect with `ssh cka-control-plane`.
+Lab hint: access the control plane with `ssh cka-control-plane` —
+`etcdctl` and `etcdutl` are installed on that node.

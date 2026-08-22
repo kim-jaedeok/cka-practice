@@ -3,3 +3,4 @@ title: Investigate cluster DNS
 domain: services-networking
 points: 5
 minutes: 6
+answer_files: ["svc.txt", "kubernetes.txt"]

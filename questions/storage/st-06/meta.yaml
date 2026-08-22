@@ -1,0 +1,14 @@
+id: st-06
+title: Install and verify a CSI storage extension
+domain: storage
+points: 10
+minutes: 15
+environment: csi-cell
+mode: individual-only
+mock_exam: false
+destructive: true
+isolation: disposable-cell
+designated_host: st06-admin
+ssh_profile: control-plane-admin
+setup_timeout_seconds: 600
+grade_timeout_seconds: 180

@@ -1,0 +1,8 @@
+# question-id|path relative to ~/cka/<question-id>
+# Only files read by a supported question's host grader belong here.
+ts-07|gateway-errors.log
+ts-07|worker-previous.log
+ts-08|top-pod.txt
+sn-06|svc.txt
+sn-06|kubernetes.txt
+sn-08|dns-ip.txt

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# 이 문제가 설치한 CRD를 제거한다
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../../../lib/common.sh"
-kctx delete crd backups.stable.example.com --ignore-not-found >/dev/null 2>&1 || true
+source "$CKA_ROOT/lib/controllers.sh"
+controller_require_disposable_cell ca-09 operator-cell
+kctx delete namespace operators cka-controller-system \
+  --ignore-not-found --wait=false >/dev/null 2>&1 || true
+controller_cell_cleanup ca-09 operator-cell >/dev/null 2>&1 || true

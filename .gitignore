@@ -1,2 +1,5 @@
 .state/
 .claude/
+__pycache__/
+*.pyc
+.controller-test-tmp/

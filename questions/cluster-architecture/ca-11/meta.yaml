@@ -1,0 +1,15 @@
+id: ca-11
+title: Extend a stacked-etcd HA control plane
+domain: cluster-architecture
+points: 12
+minutes: 20
+environment: kubeadm-ha
+mode: full-readiness
+mock_exam: false
+destructive: true
+isolation: disposable-cell
+designated_host: cp1
+ssh_profile: control-plane-admin
+setup_timeout_seconds: 1200
+grade_timeout_seconds: 240
+validate_setup: cell_status ca-11 kubeadm-ha

@@ -7,6 +7,7 @@
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,7 +15,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CKA_ROOT = os.environ.get("CKA_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(CKA_ROOT, "web")
 STATE_DIR = os.path.join(CKA_ROOT, ".state", "status")
+EXAM_DIR = os.path.join(CKA_ROOT, ".state", "exam")
 QUESTIONS_DIR = os.path.join(CKA_ROOT, "questions")
+# start의 strict setup/preflight 최악 상한과 runner의 10분 cleanup 예산보다
+# 짧지 않게 둔다. timeout 후 SIGTERM을 받은 runner가 cleanup/INVALID 기록을
+# 마칠 수 있도록 별도 grace를 준다.
+EXAM_COMMAND_TIMEOUT = int(os.environ.get("CKA_EXAM_COMMAND_TIMEOUT_SECONDS", "7200"))
+EXAM_TERMINATION_GRACE = int(os.environ.get("CKA_EXAM_TERMINATION_GRACE_SECONDS", "660"))
 
 # 도메인 표시 순서 (cka CLI의 DOMAIN_ORDER와 동일)
 DOMAIN_ORDER = [
@@ -52,6 +59,25 @@ def state_get(qid):
             return f.read().strip()
     except OSError:
         return "-"
+
+
+def exam_state():
+    """Return the runner state without invoking the candidate-facing CLI."""
+    path = os.path.join(EXAM_DIR, "state")
+    try:
+        with open(path, encoding="utf-8") as f:
+            state = f.read().strip()
+    except FileNotFoundError:
+        return "NONE"
+    except OSError:
+        return "CORRUPT"
+    if state in {"PREPARING", "RUNNING", "SEALED", "GRADING", "ARCHIVED", "INVALID"}:
+        return state
+    return "CORRUPT"
+
+
+def exam_actions_locked():
+    return exam_state() not in {"NONE", "ARCHIVED", "INVALID"}
 
 
 def list_questions():
@@ -100,14 +126,33 @@ def run_cka(args, timeout=300):
     """`cka` CLI를 실행하고 ANSI 제거된 출력을 반환."""
     cmd = [os.path.join(CKA_ROOT, "cka")] + args
     env = dict(os.environ, CKA_ROOT=CKA_ROOT)
+    popen_args = {
+        "cwd": CKA_ROOT,
+        "env": env,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+    }
+    if os.name == "nt":
+        popen_args["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_args["start_new_session"] = True
     try:
-        proc = subprocess.run(
-            cmd, cwd=CKA_ROOT, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            timeout=timeout,
-        )
-        return proc.returncode, strip_ansi(proc.stdout.decode("utf-8", "replace"))
+        proc = subprocess.Popen(cmd, **popen_args)
+        stdout, _ = proc.communicate(timeout=timeout)
+        return proc.returncode, strip_ansi(stdout.decode("utf-8", "replace"))
     except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            proc.kill()
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.communicate(timeout=EXAM_TERMINATION_GRACE)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        proc.communicate()
         return 124, "(시간 초과: 명령이 %d초 안에 끝나지 않았습니다)" % timeout
     except Exception as exc:  # noqa: BLE001
         return 1, "(실행 오류: %s)" % exc
@@ -150,6 +195,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/exam/status":
             code, out = run_cka(["exam", "status"], timeout=30)
             return self._send(200, {"code": code, "output": out})
+        if path == "/api/exam/state":
+            return self._send(200, {
+                "state": exam_state(),
+                "practiceLocked": exam_actions_locked(),
+            })
         if path.startswith("/api/exam/question/"):
             n = path.rsplit("/", 1)[-1]
             code, out = run_cka(["exam", "question", n], timeout=30)
@@ -173,6 +223,12 @@ class Handler(BaseHTTPRequestHandler):
             qid = payload.get("id", "")
             if cmd not in ("start", "grade", "solution", "reset") or not re.fullmatch(r"[a-z]{2}-\d{2}", qid or ""):
                 return self._send(400, {"error": "invalid action"})
+            if exam_actions_locked():
+                return self._send(409, {
+                    "code": 1,
+                    "output": "모의고사가 %s 상태입니다. 시험 중에는 연습용 동작을 사용할 수 없습니다." % exam_state(),
+                    "status": state_get(qid),
+                })
             # start/reset은 클러스터 셋업이 있어 오래 걸릴 수 있다
             timeout = 300 if cmd in ("start", "reset") else 60
             code, out = run_cka([cmd, qid], timeout=timeout)
@@ -182,7 +238,13 @@ class Handler(BaseHTTPRequestHandler):
             cmd = payload.get("cmd", "")
             if cmd not in ("start", "finish", "abort"):
                 return self._send(400, {"error": "invalid exam cmd"})
-            timeout = 600 if cmd in ("start", "finish") else 60
+            # Seventeen strict setups plus the all-task preflight can take well
+            # over ten minutes on a cold machine. Keep the HTTP request alive;
+            # the exam timer itself starts only after preparation succeeds.
+            # abort도 여러 문항의 bounded teardown/cleanup을 수행하므로 start/finish와
+            # 같은 상한을 사용한다. HTTP timeout이 runner보다 먼저 프로세스를 죽이면
+            # 안전한 정리와 INVALID 기록이 중간에 끊길 수 있다.
+            timeout = EXAM_COMMAND_TIMEOUT
             code, out = run_cka(["exam", cmd], timeout=timeout)
             return self._send(200, {"code": code, "output": out})
 

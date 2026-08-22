@@ -185,6 +185,17 @@ function renderMarkdown(md) {
 
 // ── 연습 탭 ──
 let questions = [];
+let practiceLockedByExam = false;
+async function syncExamLock() {
+  try {
+    const s = await (await fetch('/api/exam/state')).json();
+    practiceLockedByExam = !!s.practiceLocked;
+    document.querySelectorAll('#practiceTab button').forEach(b => {
+      b.disabled = practiceLockedByExam;
+      b.title = practiceLockedByExam ? `모의고사 ${s.state} 상태에서는 사용할 수 없습니다.` : '';
+    });
+  } catch (_) { /* 다음 API 요청도 서버에서 다시 검증한다. */ }
+}
 async function loadQuestions() {
   questions = await (await fetch('/api/questions')).json();
   const sel = $('qselect');
@@ -204,6 +215,7 @@ async function loadQuestions() {
     sel.appendChild(og);
   });
   if (cur) sel.value = cur;
+  await syncExamLock();
 }
 
 async function showQuestion(id) {
@@ -254,7 +266,7 @@ function startTimer(id, minutes) {
 async function initQuestion() {
   const id = $('qselect').value;
   if (!id) return;
-  await action('reset');
+  if (!await action('reset')) return;
   const q = questions.find(x => x.id === id);
   startTimer(id, q ? q.minutes : 0);
 }
@@ -262,22 +274,31 @@ async function initQuestion() {
 async function action(cmd) {
   const id = $('qselect').value;
   if (!id) return;
+  await syncExamLock();
+  if (practiceLockedByExam) {
+    clearConsole();
+    log('모의고사 진행 중에는 Start / Grade / Solution / Reset을 사용할 수 없습니다.', 'bad');
+    return false;
+  }
   if (cmd === 'grade' || cmd === 'solution') stopTimer();   // 채점·정답 확인 시 타이머 정지(현재값 고정)
   const btns = document.querySelectorAll('#practiceTab button');
   btns.forEach(b => b.disabled = true);
   clearConsole();
   log(`$ cka ${cmd} ${id}`, 'dim');
   if (cmd === 'start' || cmd === 'reset') log('환경 구성 중... (최대 1~2분)', 'dim');
+  let success = false;
   try {
     const r = await (await fetch('/api/action', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({cmd, id})
     })).json();
     logResult(r.output || '(출력 없음)');
+    success = r.code === 0;
     await loadQuestions();
-    if (cmd === 'start' || cmd === 'reset') await showQuestion(id);
+    if (success && (cmd === 'start' || cmd === 'reset')) await showQuestion(id);
   } catch (e) { log('요청 실패: ' + e, 'bad'); }
-  finally { btns.forEach(b => b.disabled = false); }
+  finally { await syncExamLock(); }
+  return success;
 }
 
 $('qselect').addEventListener('change', e => showQuestion(e.target.value));
@@ -307,6 +328,7 @@ async function examStatus(silent) {
     b.onclick = () => examQuestion(num);
     nav.appendChild(b);
   });
+  await syncExamLock();
   return r.output;
 }
 async function examQuestion(n) {
@@ -328,7 +350,7 @@ async function examAction(cmd) {
     if (cmd === 'start') { startExamPoll(); await examStatus(true); }
     if (cmd === 'finish' || cmd === 'abort') stopExamPoll();
   } catch (e) { log('요청 실패: ' + e, 'bad'); }
-  finally { btns.forEach(b => b.disabled = false); }
+  finally { btns.forEach(b => b.disabled = false); await syncExamLock(); }
 }
 function startExamPoll() { stopExamPoll(); examPoll = setInterval(() => examStatus(true), 5000); }
 function stopExamPoll() { if (examPoll) { clearInterval(examPoll); examPoll = null; } $('examTimer').textContent = '--:--:--'; }

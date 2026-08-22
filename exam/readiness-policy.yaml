@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "officialPassPercent": 66,
+  "practiceReady": {
+    "minimumValidBlindRuns": 3,
+    "minimumOverallPercentEachRun": 80,
+    "minimumDomainPercentEachRun": 65,
+    "maximumOvertimeSeconds": 0,
+    "requireAllCurriculumCompetenciesCovered": true,
+    "requireDesignatedHostWorkflow": true,
+    "requireExternalSimulatorPass": true
+  },
+  "notes": [
+    "The official CKA pass score is 66 percent.",
+    "The 80/65 thresholds are conservative local readiness gates, not an official pass prediction.",
+    "INVALID runs and overtime runs never count toward readiness."
+  ],
+  "sources": [
+    "https://docs.linuxfoundation.org/tc-docs/certification/faq-cka-ckad-cks",
+    "https://training.linuxfoundation.org/certification/certified-kubernetes-administrator-cka/",
+    "https://docs.linuxfoundation.org/tc-docs/certification/tips-cka-and-ckad"
+  ]
+}

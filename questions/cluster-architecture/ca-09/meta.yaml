@@ -1,5 +1,14 @@
 id: ca-09
-title: Work with CRDs and custom resources
+title: Configure a certificate operator and verify reconciliation
 domain: cluster-architecture
-points: 6
-minutes: 8
+points: 10
+minutes: 12
+environment: operator-cell
+mode: individual-only
+mock_exam: false
+destructive: true
+isolation: disposable-cell
+designated_host: operator-admin
+ssh_profile: operator-admin
+setup_timeout_seconds: 600
+grade_timeout_seconds: 180

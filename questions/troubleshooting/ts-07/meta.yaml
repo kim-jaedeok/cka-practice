@@ -1,5 +1,6 @@
 id: ts-07
-title: Extract error lines from container logs
+title: Inspect current and previous multi-container logs
 domain: troubleshooting
-points: 4
-minutes: 4
+points: 6
+minutes: 7
+answer_files: ["gateway-errors.log", "worker-previous.log"]

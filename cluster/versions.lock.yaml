@@ -1,0 +1,41 @@
+# cka-practice cluster dependency lock.
+#
+# Keep this as a flat key/value mapping: lib/common.sh intentionally parses it
+# without yq so cluster bootstrap has no dependency beyond POSIX userland.
+# Values must be quoted and inline comments are not supported.
+schema_version: "2"
+
+kind_version: "v0.31.0"
+kind_release_base_url: "https://github.com/kubernetes-sigs/kind/releases/download/v0.31.0"
+kind_linux_amd64_sha256: "eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"
+kind_linux_arm64_sha256: "8e1014e87c34901cc422a1445866835d1e666f2a61301c27e722bdeab5a1f7e4"
+kubernetes_version: "v1.35.0"
+kind_node_image: "kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f"
+etcd_image: "registry.k8s.io/etcd:3.6.6-0"
+
+calico_version: "v3.32.1"
+calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/calico.yaml"
+
+metrics_server_version: "v0.9.0"
+metrics_server_manifest_url: "https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.9.0/components.yaml"
+metrics_server_manifest_sha256: "1cec29a5267809306a2c6ec74a3e449abbb705b4a8beed0c8a1963910f72c79b"
+
+ingress_nginx_version: "controller-v1.15.1"
+ingress_nginx_manifest_url: "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/kind/deploy.yaml"
+
+gateway_api_version: "v1.6.0"
+
+helm_version: "v3.21.4"
+helm_linux_amd64_sha256: "61f88ab166748cb19604d7884cb100ae9ccb13804ddeb98e08af167eacbb6a14"
+helm_linux_arm64_sha256: "b54c04b4e0b2540bbdc08c17a121dab70e9a2ed0de5705528fec68a5fd3b85a7"
+
+cloud_provider_kind_version: "v0.11.1"
+cloud_provider_kind_release_base_url: "https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/v0.11.1"
+cloud_provider_kind_linux_amd64_sha256: "5454ba985c65ee3ab560192b8e4db799417ee646ffd7222e23fb79515926cc6c"
+cloud_provider_kind_linux_arm64_sha256: "a9b566b4ab8f9926410bb3b016ff780acaf805285776c4f292ec5e9c346ab021"
+cloud_provider_kind_linux_amd64_binary_sha256: "d8da1d7e62e5807947587f3dd6c38f9f866c368d33ed9b25319b74b6ea578579"
+cloud_provider_kind_linux_arm64_binary_sha256: "949ce2f16909b708bda7e337191e5c1706fcdddd0524b59724d95a853b4d8b56"
+cloud_provider_kind_proxy_image: "docker.io/envoyproxy/envoy:v1.33.2"
+cloud_provider_kind_proxy_repo_digest: "envoyproxy/envoy@sha256:e2baf0b155d0f54881b54621fdd997e3ec81dc6454f299d4e590afe18256a176"
+
+preload_images_csv: "nginx:1.28,nginx:1.29,busybox:1.36"

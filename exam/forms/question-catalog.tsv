@@ -1,0 +1,62 @@
+# id|domain|setup_priority|mutex_keys|breaks|requires|enabled
+#
+# P0 compatibility metadata for the shared kind cluster.
+# - Questions sharing a mutex key may not appear in the same mock exam.
+# - A question whose `breaks` key intersects another question's `requires` key
+#   may not appear in the same mock exam.
+# - Higher setup_priority values run later, independently of displayed order.
+# - Any question whose meta.yaml selects a disposable environment is disabled
+#   here. It runs individually through `cka start`, never in the shared form.
+# - ts-05 and ts-12 remain disabled until their faults also move to cells.
+ts-01|troubleshooting|100||||true
+ts-02|troubleshooting|100||||true
+ts-03|troubleshooting|100|||dns|true
+ts-04|troubleshooting|100||||true
+ts-05|troubleshooting|900||worker2-ready||false
+ts-06|troubleshooting|950|coredns-config|dns||true
+ts-07|troubleshooting|100|||unmanaged-pod-survival|true
+ts-08|troubleshooting|100|||unmanaged-pod-survival|true
+ts-09|troubleshooting|100|||unmanaged-pod-survival|true
+ts-10|troubleshooting|100||||true
+ts-11|troubleshooting|100||||true
+ts-12|troubleshooting|1000||scheduler||false
+ts-13|troubleshooting|900||||false
+ts-14|troubleshooting|900||||false
+ts-15|troubleshooting|900||||false
+ca-01|cluster-architecture|100|namespace-dev-team|||true
+ca-02|cluster-architecture|100|namespace-dev-team|||true
+ca-03|cluster-architecture|100||||true
+ca-04|cluster-architecture|100||||true
+ca-05|cluster-architecture|300|node-drain,pair-ca05-wl05,pair-ca05-ca10|worker1-schedulable,unmanaged-pod-survival|worker2-ready|true
+ca-06|cluster-architecture|900|node-drain,pair-ca06-wl05,pair-ca06-wl07|unmanaged-pod-survival|worker2-ready|false
+ca-07|cluster-architecture|100||||true
+ca-08|cluster-architecture|100||||true
+ca-09|cluster-architecture|900||||false
+ca-10|cluster-architecture|300|pair-ca05-ca10|||true
+ca-11|cluster-architecture|900||||false
+ca-12|cluster-architecture|900||||false
+ca-13|cluster-architecture|900||||false
+sn-01|services-networking|100|namespace-world||dns|true
+sn-02|services-networking|100|namespace-world|||true
+sn-03|services-networking|100|||dns,unmanaged-pod-survival|true
+sn-04|services-networking|100||||true
+sn-05|services-networking|900||||false
+sn-06|services-networking|100|||dns,unmanaged-pod-survival|true
+sn-07|services-networking|100|||dns,unmanaged-pod-survival|true
+sn-08|services-networking|900|coredns-config||dns|true
+sn-09|services-networking|100|||loadbalancer-provider|true
+sn-10|services-networking|100|||dns,unmanaged-pod-survival|true
+wl-01|workloads-scheduling|100||||true
+wl-02|workloads-scheduling|100||||true
+wl-03|workloads-scheduling|100||||true
+wl-04|workloads-scheduling|100||||true
+wl-05|workloads-scheduling|800|pair-ca05-wl05,pair-ca06-wl05|worker2-general-scheduling|worker2-ready|true
+wl-06|workloads-scheduling|100||||true
+wl-07|workloads-scheduling|100|pair-ca06-wl07||worker1-ready,worker1-schedulable,worker1-general-scheduling,worker2-ready,worker2-schedulable,worker2-general-scheduling|true
+wl-08|workloads-scheduling|100||||true
+st-01|storage|100||||true
+st-02|storage|100|||unmanaged-pod-survival|true
+st-03|storage|100|||unmanaged-pod-survival|true
+st-04|storage|100||||true
+st-05|storage|100|||worker1-ready,worker1-schedulable,worker1-general-scheduling|true
+st-06|storage|900||||false

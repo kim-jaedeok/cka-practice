@@ -7,7 +7,7 @@ require_cluster
 kctx get ns world >/dev/null 2>&1 || { recreate_ns "$QID" world; }
 kctx -n world delete deploy asia --ignore-not-found >/dev/null 2>&1 || true
 kctx -n world delete svc asia-svc --ignore-not-found >/dev/null 2>&1 || true
-rm -rf "${CKA_WORK_DIR:?}/$QID"
+workdir_clear "$QID"
 
 kctx apply -f - <<'EOF'
 apiVersion: apps/v1

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+question_id="${1:-}"
+case "$question_id" in
+  ''|*[!a-z0-9-]*|-*|*-)
+    printf 'usage: cka-use-context <question-id>\n' >&2
+    exit 2
+    ;;
+esac
+
+source_file="/etc/cka/kubeconfigs/${question_id}.yaml"
+if [ ! -s "$source_file" ]; then
+  printf 'kubeconfig not found for question: %s\n' "$question_id" >&2
+  exit 1
+fi
+
+install -d -m 0700 "${HOME}/.kube"
+install -m 0600 "$source_file" "${HOME}/.kube/config"
+printf '%s\n' "$question_id" > "${HOME}/.kube/active-question"
+printf 'active question kubeconfig: %s\n' "$question_id"

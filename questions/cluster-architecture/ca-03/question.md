@@ -10,7 +10,7 @@ Create a backup of the cluster's etcd database.
    - server key: `/etc/kubernetes/pki/etcd/server.key`
 
 2. Verify the snapshot with `etcdutl snapshot status` and save the full
-   output to `~/cka/ca-03/status.txt`.
+   output to `~/cka/ca-03/status.txt` on the machine you are working from.
 
-Run `etcdctl`/`etcdutl` on the control plane node — connect with
-`ssh cka-control-plane`.
+Lab hint: access the control plane with `ssh cka-control-plane` —
+`etcdctl` and `etcdutl` are installed on that node.

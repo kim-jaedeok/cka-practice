@@ -1,0 +1,5 @@
+id: sn-10
+title: Enforce cross-namespace ingress and controlled egress
+domain: services-networking
+points: 8
+minutes: 15

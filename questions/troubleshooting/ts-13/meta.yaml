@@ -1,0 +1,8 @@
+id: ts-13
+title: Recover etcd and kube-apiserver static Pods
+domain: troubleshooting
+points: 8
+minutes: 15
+mode: individual-only
+mock_exam: false
+destructive: true

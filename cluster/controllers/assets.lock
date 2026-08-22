@@ -1,0 +1,56 @@
+# Offline controller lab dependency lock.
+#
+# This file is intentionally a flat quoted mapping so lib/controllers.sh can
+# parse it without adding a YAML parser to the trusted runtime.
+schema_version: "1"
+platform: "linux/amd64"
+
+cert_manager_version: "v1.21.1"
+cert_manager_manifest: "cert-manager-v1.21.1.yaml"
+cert_manager_manifest_url: "https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml"
+cert_manager_manifest_sha256: "5f6a499b8c1857d57f560f536e0dcc830914b45c420899fe7ad0692c8624e408"
+cert_manager_images_bundle: "cert-manager-v1.21.1-linux-amd64.tar"
+cert_manager_controller_image: "quay.io/jetstack/cert-manager-controller:v1.21.1"
+cert_manager_controller_digest: "sha256:4c2b5201fd66085b777dc6b256d96d7d346b6445404cec34db5f8aea86182cc5"
+cert_manager_controller_image_id: "sha256:8359cecc5aa6ffd4940996999c15c543821a9949d2b8a3881295c38ef86e0757"
+cert_manager_webhook_image: "quay.io/jetstack/cert-manager-webhook:v1.21.1"
+cert_manager_webhook_digest: "sha256:741084291faf115a2909bfe3515458b54926c67f039ac20effd821bac69817a4"
+cert_manager_webhook_image_id: "sha256:6f7f1ce59de1febbc7e423da382eedd0350ba6c8600368e6f42d7fdefa1bb6b9"
+cert_manager_cainjector_image: "quay.io/jetstack/cert-manager-cainjector:v1.21.1"
+cert_manager_cainjector_digest: "sha256:1910ad7e134880e27d229e07affb43da1b07841a77f70c364f17467cb4e49bd9"
+cert_manager_cainjector_image_id: "sha256:3133bbd4dd2783fe7197585d9198c738508b9784c8746bf62e9fac6aad41535a"
+
+gateway_api_version: "v1.6.1"
+gateway_api_manifest: "gateway-api-v1.6.1-standard.yaml"
+gateway_api_manifest_url: "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml"
+gateway_api_manifest_sha256: "24d931f22abd8e40c973264319ead7cfa09d0fb7716b7ab1ee2ff174cb063a73"
+
+envoy_gateway_version: "v1.9.0"
+envoy_gateway_manifest: "envoy-gateway-v1.9.0.yaml"
+envoy_gateway_manifest_url: "https://github.com/envoyproxy/gateway/releases/download/v1.9.0/install.yaml"
+envoy_gateway_manifest_sha256: "a83dea73466ee6528f0d23f86d36573fbf1f305c822d986a63e262e32594481a"
+envoy_gateway_images_bundle: "envoy-gateway-v1.9.0-linux-amd64.tar"
+envoy_gateway_image: "docker.io/envoyproxy/gateway:v1.9.0"
+envoy_gateway_digest: "sha256:7709b70c6be63bba5b487f05239cb5c71c6065dac8bcd14bdea9273a589786a1"
+envoy_gateway_image_id: "sha256:8bdf422ae09789f4c4a8b0527ecea9e2f7f9ff41d9162c37fbfb75c7ae6a2e02"
+envoy_proxy_image: "docker.io/envoyproxy/envoy:distroless-v1.39.0"
+envoy_proxy_digest: "sha256:9e24a3b459b463dd37e116a0f46d2abfcb6a1cb9897d87e85cf2ee25edbe373b"
+envoy_proxy_image_id: "sha256:9c535313878e1ab11a10402ed0c984b2e8d37a0a3753af262a49d1badd124e6e"
+envoy_ratelimit_image: "docker.io/envoyproxy/ratelimit:17b1956c"
+envoy_ratelimit_digest: "sha256:cc9d33a3189b66edf63bec4155b741b24ad80ca10fc01a2589c7f4c7679b8a6a"
+envoy_ratelimit_image_id: "sha256:c1a0c5a853f251c43bdafc9bfc594b56a57af8c0403b879fdbc9303dbf71b561"
+
+# sn-05 reuses the exact offline workload archive produced by the kubeadm
+# cache. Registry index digests document the upstream pulls; platform manifest
+# digests are the identities present in the linux/amd64 OCI archive and on the
+# KIND nodes.
+gateway_workload_bundle: "kubeadm-workloads-linux-amd64.tar"
+gateway_workload_attachment_digests: "sha256:89ac95482c5fefb46a0d3470431760940c36e9c0ff0c40e9e5c259091a26b1e3 sha256:bf34a2efe16261f3df780ef1aaa3d34d2e2f85d7257b3ffc1b20f78de52a41f6"
+gateway_backend_image: "docker.io/library/nginx:1.29"
+gateway_backend_registry_digest: "sha256:1881968aff6f7cdcc4b888c00a11f4ce241ad7ec957e0cb4a9e19e93a3ff87ea"
+gateway_backend_digest: "sha256:ab15d428b6a7121511a38221591a41f835933ac16f996fafd102d128a0fa20f7"
+gateway_backend_image_id: "sha256:5dfe511714e1fa9a9d1074193a6cc7fa0feab5d680be166336817a5fb57f4cbd"
+gateway_probe_image: "docker.io/library/busybox:1.36"
+gateway_probe_registry_digest: "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+gateway_probe_digest: "sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f"
+gateway_probe_image_id: "sha256:b116e155074440ffd9e449559433feb4cd2341eb3554b1da1c638c976e56451d"

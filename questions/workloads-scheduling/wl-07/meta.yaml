@@ -1,0 +1,5 @@
+id: wl-07
+title: Required node affinity and topology spread
+domain: workloads-scheduling
+points: 8
+minutes: 10

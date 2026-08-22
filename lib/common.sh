@@ -4,9 +4,10 @@
 CKA_ROOT="${CKA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 CKA_CONTEXT="${CKA_CONTEXT:-kind-cka}"
 CKA_CLUSTER_NAME="${CKA_CLUSTER_NAME:-cka}"
-CKA_STATE_DIR="$CKA_ROOT/.state"
+CKA_STATE_DIR="${CKA_STATE_DIR:-$CKA_ROOT/.state}"
 CKA_WORK_DIR="${CKA_WORK_DIR:-$HOME/cka}"   # 파일 제출형 답안이 저장되는 위치
 CKA_LABEL_KEY="cka-practice/question"
+CKA_VERSIONS_LOCK="$CKA_ROOT/cluster/versions.lock.yaml"
 
 # helm 등 사용자 로컬 바이너리 경로 보장 (비로그인 셸 대비)
 case ":$PATH:" in
@@ -34,10 +35,274 @@ warn() { printf '%s\n' "${C_YLW}[warn]${C_RST} $*"; }
 err()  { printf '%s\n' "${C_RED}[fail]${C_RST} $*" >&2; }
 die()  { err "$*"; exit 1; }
 
+# ── 재현 가능한 클러스터 버전 lock ──────────────────────────────
+# bootstrap 자체가 yq에 의존하지 않도록 versions.lock.yaml은 의도적으로
+# flat key/value 형식만 허용한다. 값은 eval하지 않고 문자열로만 읽는다.
+version_lock_get() { # version_lock_get <key>
+  local key="$1"
+  awk -v key="$key" '
+    $0 ~ "^" key ":[[:space:]]*" {
+      count++
+      value = $0
+      sub("^" key ":[[:space:]]*", "", value)
+      sub("\\r$", "", value)
+      if (value !~ /^"[^"]*"$/) {
+        invalid = 1
+        next
+      }
+      value = substr(value, 2, length(value) - 2)
+    }
+    END {
+      if (count != 1 || invalid) exit 1
+      print value
+    }
+  ' "$CKA_VERSIONS_LOCK"
+}
+
+_version_lock_assign() { # _version_lock_assign <shell-var> <yaml-key>
+  local var="$1" key="$2" value
+  value="$(version_lock_get "$key")" \
+    || die "버전 lock 필수 키가 없습니다: $key ($CKA_VERSIONS_LOCK)"
+  [ -n "$value" ] || die "버전 lock 값이 비었습니다: $key"
+  printf -v "$var" '%s' "$value"
+  export "$var"
+}
+
+validate_version_lock() {
+  [ -r "$CKA_VERSIONS_LOCK" ] || die "버전 lock 파일을 읽을 수 없습니다: $CKA_VERSIONS_LOCK"
+  [ "$CKA_LOCK_SCHEMA_VERSION" = 2 ] || die "지원하지 않는 버전 lock schema: $CKA_LOCK_SCHEMA_VERSION"
+  [[ "$KIND_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "kind_version 형식 오류: $KIND_VERSION"
+  [ "$KIND_RELEASE_BASE_URL" = "https://github.com/kubernetes-sigs/kind/releases/download/$KIND_VERSION" ] \
+    || die "KIND release URL/version이 lock 안에서 일치하지 않습니다."
+  [[ "$KIND_LINUX_AMD64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    && [[ "$KIND_LINUX_ARM64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    || die "KIND binary sha256 형식 오류"
+  [[ "$KUBERNETES_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "kubernetes_version 형식 오류: $KUBERNETES_VERSION"
+  [[ "$KIND_NODE_IMAGE" =~ ^kindest/node:${KUBERNETES_VERSION}@sha256:[0-9a-f]{64}$ ]] \
+    || die "kind_node_image는 Kubernetes tag + sha256 digest로 고정해야 합니다."
+  [[ "$ETCD_IMAGE" =~ ^registry\.k8s\.io/etcd:[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]] \
+    || die "etcd_image 형식 오류: $ETCD_IMAGE"
+  [[ "$CALICO_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "calico_version 형식 오류: $CALICO_VERSION"
+  [ "$CALICO_MANIFEST_URL" = "https://raw.githubusercontent.com/projectcalico/calico/$CALICO_VERSION/manifests/calico.yaml" ] \
+    || die "Calico URL/version이 lock 안에서 일치하지 않습니다."
+  [[ "$METRICS_SERVER_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "metrics_server_version 형식 오류: $METRICS_SERVER_VERSION"
+  [ "$METRICS_SERVER_URL" = "https://github.com/kubernetes-sigs/metrics-server/releases/download/$METRICS_SERVER_VERSION/components.yaml" ] \
+    || die "metrics-server URL/version이 lock 안에서 일치하지 않습니다."
+  [[ "$METRICS_SERVER_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    || die "metrics-server manifest sha256 형식 오류"
+  [[ "$INGRESS_NGINX_VERSION" =~ ^controller-v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "ingress_nginx_version 형식 오류: $INGRESS_NGINX_VERSION"
+  [ "$INGRESS_NGINX_URL" = "https://raw.githubusercontent.com/kubernetes/ingress-nginx/$INGRESS_NGINX_VERSION/deploy/static/provider/kind/deploy.yaml" ] \
+    || die "ingress-nginx URL/version이 lock 안에서 일치하지 않습니다."
+  [[ "$GATEWAY_API_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "gateway_api_version 형식 오류: $GATEWAY_API_VERSION"
+  [[ "$HELM_VERSION" =~ ^v3\.[0-9]+\.[0-9]+$ ]] \
+    || die "helm_version은 Helm 3의 exact patch여야 합니다: $HELM_VERSION"
+  [[ "$HELM_LINUX_AMD64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    && [[ "$HELM_LINUX_ARM64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    || die "Helm archive sha256 형식 오류"
+  [[ "$CLOUD_PROVIDER_KIND_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "cloud_provider_kind_version 형식 오류: $CLOUD_PROVIDER_KIND_VERSION"
+  [ "$CLOUD_PROVIDER_KIND_RELEASE_BASE_URL" = \
+      "https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/$CLOUD_PROVIDER_KIND_VERSION" ] \
+    || die "Cloud Provider KIND release URL/version이 lock 안에서 일치하지 않습니다."
+  [[ "$CLOUD_PROVIDER_KIND_LINUX_AMD64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    && [[ "$CLOUD_PROVIDER_KIND_LINUX_ARM64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    || die "Cloud Provider KIND archive sha256 형식 오류"
+  [[ "$CLOUD_PROVIDER_KIND_LINUX_AMD64_BINARY_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    && [[ "$CLOUD_PROVIDER_KIND_LINUX_ARM64_BINARY_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    || die "Cloud Provider KIND binary sha256 형식 오류"
+  [[ "$CLOUD_PROVIDER_KIND_PROXY_IMAGE" =~ ^docker\.io/[a-z0-9._/-]+:v?[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "Cloud Provider KIND proxy image 형식 오류: $CLOUD_PROVIDER_KIND_PROXY_IMAGE"
+  [[ "$CLOUD_PROVIDER_KIND_PROXY_REPO_DIGEST" =~ ^[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    || die "Cloud Provider KIND proxy image digest 형식 오류"
+  [[ "$CKA_PRELOAD_IMAGES_CSV" =~ ^[A-Za-z0-9._/@:+-]+(,[A-Za-z0-9._/@:+-]+)*$ ]] \
+    || die "preload_images_csv 형식 오류: 공백·빈 항목 없이 image ref를 쉼표로 구분해야 합니다."
+}
+
+load_version_lock() {
+  [ -r "$CKA_VERSIONS_LOCK" ] || die "버전 lock 파일을 읽을 수 없습니다: $CKA_VERSIONS_LOCK"
+  _version_lock_assign CKA_LOCK_SCHEMA_VERSION schema_version
+  _version_lock_assign KIND_VERSION kind_version
+  _version_lock_assign KIND_RELEASE_BASE_URL kind_release_base_url
+  _version_lock_assign KIND_LINUX_AMD64_SHA256 kind_linux_amd64_sha256
+  _version_lock_assign KIND_LINUX_ARM64_SHA256 kind_linux_arm64_sha256
+  _version_lock_assign KUBERNETES_VERSION kubernetes_version
+  _version_lock_assign KIND_NODE_IMAGE kind_node_image
+  _version_lock_assign ETCD_IMAGE etcd_image
+  _version_lock_assign CALICO_VERSION calico_version
+  _version_lock_assign CALICO_MANIFEST_URL calico_manifest_url
+  _version_lock_assign METRICS_SERVER_VERSION metrics_server_version
+  _version_lock_assign METRICS_SERVER_URL metrics_server_manifest_url
+  _version_lock_assign METRICS_SERVER_MANIFEST_SHA256 metrics_server_manifest_sha256
+  _version_lock_assign INGRESS_NGINX_VERSION ingress_nginx_version
+  _version_lock_assign INGRESS_NGINX_URL ingress_nginx_manifest_url
+  _version_lock_assign GATEWAY_API_VERSION gateway_api_version
+  _version_lock_assign HELM_VERSION helm_version
+  _version_lock_assign HELM_LINUX_AMD64_SHA256 helm_linux_amd64_sha256
+  _version_lock_assign HELM_LINUX_ARM64_SHA256 helm_linux_arm64_sha256
+  _version_lock_assign CLOUD_PROVIDER_KIND_VERSION cloud_provider_kind_version
+  _version_lock_assign CLOUD_PROVIDER_KIND_RELEASE_BASE_URL cloud_provider_kind_release_base_url
+  _version_lock_assign CLOUD_PROVIDER_KIND_LINUX_AMD64_SHA256 cloud_provider_kind_linux_amd64_sha256
+  _version_lock_assign CLOUD_PROVIDER_KIND_LINUX_ARM64_SHA256 cloud_provider_kind_linux_arm64_sha256
+  _version_lock_assign CLOUD_PROVIDER_KIND_LINUX_AMD64_BINARY_SHA256 cloud_provider_kind_linux_amd64_binary_sha256
+  _version_lock_assign CLOUD_PROVIDER_KIND_LINUX_ARM64_BINARY_SHA256 cloud_provider_kind_linux_arm64_binary_sha256
+  _version_lock_assign CLOUD_PROVIDER_KIND_PROXY_IMAGE cloud_provider_kind_proxy_image
+  _version_lock_assign CLOUD_PROVIDER_KIND_PROXY_REPO_DIGEST cloud_provider_kind_proxy_repo_digest
+  _version_lock_assign CKA_PRELOAD_IMAGES_CSV preload_images_csv
+  validate_version_lock
+}
+
+load_version_lock
+
+# 시스템 KIND를 덮어쓰지 않고 lock 버전을 사용자 전용 경로에 검증 설치한다.
+kind_locked_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) printf '%s\n' amd64 ;;
+    aarch64|arm64) printf '%s\n' arm64 ;;
+    *) die "지원하지 않는 KIND 아키텍처: $(uname -m)" ;;
+  esac
+}
+
+kind_locked_sha256() {
+  case "$1" in
+    amd64) printf '%s\n' "$KIND_LINUX_AMD64_SHA256" ;;
+    arm64) printf '%s\n' "$KIND_LINUX_ARM64_SHA256" ;;
+    *) die "지원하지 않는 KIND 아키텍처: $1" ;;
+  esac
+}
+
+kind_locked_dir() {
+  local data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
+  printf '%s/cka-practice/tools/kind/%s/linux-%s\n' \
+    "$data_root" "$KIND_VERSION" "$(kind_locked_arch)"
+}
+
+kind_locked_binary_ok() {
+  local binary="$1" expected_sha actual_version
+  [ -f "$binary" ] && [ ! -L "$binary" ] && [ -x "$binary" ] || return 1
+  expected_sha="$(kind_locked_sha256 "$(kind_locked_arch)")"
+  printf '%s  %s\n' "$expected_sha" "$binary" | sha256sum -c - >/dev/null 2>&1 || return 1
+  actual_version="$("$binary" version 2>/dev/null | awk '{print $2; exit}')"
+  [ "$actual_version" = "$KIND_VERSION" ]
+}
+
+activate_locked_kind() {
+  local binary dir
+  dir="$(kind_locked_dir)"
+  binary="$dir/kind"
+  kind_locked_binary_ok "$binary" || return 1
+  PATH="$dir:$PATH"
+  export PATH
+}
+
+ensure_locked_kind() {
+  local arch expected_sha dir binary lock_file tmp actual system_kind system_version lock_fd
+  activate_locked_kind && return 0
+
+  for actual in curl sha256sum flock mktemp mkdir chmod mv uname awk; do
+    command -v "$actual" >/dev/null 2>&1 || die "$actual 이 설치되어 있지 않습니다."
+  done
+
+  arch="$(kind_locked_arch)"
+  expected_sha="$(kind_locked_sha256 "$arch")"
+  dir="$(kind_locked_dir)"
+  binary="$dir/kind"
+  case "$dir" in
+    /*) ;;
+    *) die "KIND 전용 경로가 절대 경로가 아닙니다: $dir" ;;
+  esac
+  [ ! -L "$dir" ] || die "KIND 전용 경로가 심볼릭 링크입니다: $dir"
+  mkdir -p -- "$dir" || die "KIND 전용 경로 생성 실패: $dir"
+  chmod 0700 -- "$dir" || die "KIND 전용 경로 권한 설정 실패: $dir"
+
+  lock_file="$dir/.install.lock"
+  exec {lock_fd}>"$lock_file" || die "KIND 설치 lock 생성 실패"
+  flock "$lock_fd" || die "KIND 설치 lock 획득 실패"
+  if activate_locked_kind; then
+    exec {lock_fd}>&-
+    return 0
+  fi
+  [ ! -L "$binary" ] || die "KIND 캐시 바이너리가 심볼릭 링크입니다: $binary"
+
+  system_kind="$(command -v kind 2>/dev/null || true)"
+  system_version="$(kind version 2>/dev/null | awk '{print $2; exit}' || true)"
+  info "시스템 KIND(${system_version:-없음})는 유지하고 lock 버전 $KIND_VERSION 을 전용 경로에 설치합니다."
+
+  tmp="$(mktemp "$dir/.kind.download.XXXXXX")" || die "KIND 임시 파일 생성 실패"
+  if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
+      "$KIND_RELEASE_BASE_URL/kind-linux-$arch" -o "$tmp"; then
+    rm -f -- "$tmp"
+    die "KIND $KIND_VERSION 다운로드 실패"
+  fi
+  if ! printf '%s  %s\n' "$expected_sha" "$tmp" | sha256sum -c - >/dev/null 2>&1; then
+    rm -f -- "$tmp"
+    die "KIND $KIND_VERSION checksum 불일치"
+  fi
+  chmod 0500 -- "$tmp" || { rm -f -- "$tmp"; die "KIND 실행 권한 설정 실패"; }
+  actual="$("$tmp" version 2>/dev/null | awk '{print $2; exit}' || true)"
+  if [ "$actual" != "$KIND_VERSION" ]; then
+    rm -f -- "$tmp"
+    die "다운로드한 KIND 버전 불일치: actual=${actual:-unknown}, lock=$KIND_VERSION"
+  fi
+  mv -f -- "$tmp" "$binary" || { rm -f -- "$tmp"; die "KIND 전용 바이너리 설치 실패"; }
+  activate_locked_kind || die "설치된 KIND 검증 실패: $binary"
+  exec {lock_fd}>&-
+  ok "KIND $KIND_VERSION 전용 바이너리 준비 완료: $binary"
+}
+
+# 이미 설치된 lock 바이너리가 있으면 모든 하위 스크립트에서 우선 사용한다.
+activate_locked_kind >/dev/null 2>&1 || true
+
 # 항상 연습 클러스터 컨텍스트로 고정해서 실행 (사용자의 현재 컨텍스트와 무관하게 동작)
 kctx() { kubectl --context "$CKA_CONTEXT" "$@"; }
 
-cluster_ready() { kctx get nodes >/dev/null 2>&1; }
+cluster_ready() { kctx --request-timeout=3s get nodes >/dev/null 2>&1; }
+
+# 0=존재, 1=정상 조회됐지만 없음, 2=KIND inventory 조회 자체가 실패함.
+# 노드 recovery보다 먼저 호출해, 클러스터가 없는 상태를 identity drift로
+# 오진하며 cka-control-plane inspect 오류를 내지 않게 한다.
+kind_cluster_exists() {
+  local clusters
+  clusters="$(kind get clusters 2>/dev/null)" || return 2
+  grep -Fxq -- "$CKA_CLUSTER_NAME" <<< "$clusters"
+}
+
+# 실행 중인 kind 클러스터가 lock의 Kubernetes/node image와 일치하는지 읽기만 한다.
+# 불일치 시 자동 재생성하지 않는다. setup-cluster.sh가 안전하게 중단하고 reset을 안내한다.
+cluster_matches_version_lock() {
+  local actual node failed=0 expected_nodes actual_nodes
+  actual="$(kctx get --raw=/version 2>/dev/null \
+    | sed -n 's/.*"gitVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  if [ "$actual" != "$KUBERNETES_VERSION" ]; then
+    err "Kubernetes server version 불일치: actual=${actual:-unknown}, lock=$KUBERNETES_VERSION"
+    failed=1
+  fi
+  expected_nodes="$(cka_node_names | sort)"
+  actual_nodes="$(kind get nodes --name "$CKA_CLUSTER_NAME" 2>/dev/null | sort)"
+  if [ "$actual_nodes" != "$expected_nodes" ]; then
+    err "kind node 집합 불일치: actual=${actual_nodes//$'\n'/,}, expected=${expected_nodes//$'\n'/,}"
+    failed=1
+  fi
+  for node in $(cka_node_names); do
+    actual="$(docker inspect --format '{{.Config.Image}}' "$node" 2>/dev/null || true)"
+    if [ "$actual" != "$KIND_NODE_IMAGE" ]; then
+      err "$node image 불일치: actual=${actual:-missing}, lock=$KIND_NODE_IMAGE"
+      failed=1
+    fi
+  done
+  actual="$(kctx -n kube-system get pod "etcd-${CKA_CLUSTER_NAME}-control-plane" \
+    -o jsonpath='{.spec.containers[?(@.name=="etcd")].image}' 2>/dev/null || true)"
+  if [ "$actual" != "$ETCD_IMAGE" ]; then
+    err "etcd image 불일치: actual=${actual:-missing}, lock=$ETCD_IMAGE"
+    failed=1
+  fi
+  [ "$failed" -eq 0 ]
+}
 
 # ── ssh 래퍼 (실전과 동일한 노드 접속 명령) ──────────────────────
 # 실전 시험은 `ssh <node>`로 노드에 들어가지만 kind 노드에는 sshd가 없다.
@@ -74,7 +339,265 @@ cka_node_names() {
                 "${CKA_CLUSTER_NAME}-worker2"
 }
 
-cka_control_plane_node() { printf '%s' "${CKA_CLUSTER_NAME}-control-plane"; }
+# Docker daemon 재기동 뒤 KIND 노드 IP 할당 순서를 보존하기 위한 shared-cluster
+# 복구 경계. 이름 조회 결과를 그대로 start하지 않고, 세 노드 전체의 immutable
+# ID/소유권/image/network/state를 먼저 검증한 뒤 그 full ID만 사용한다.
+CKA_KIND_NETWORK_NAME="kind"
+declare -ga CKA_VERIFIED_CLUSTER_IDS=()
+declare -ga CKA_VERIFIED_CLUSTER_STATES=()
+declare -ga CKA_VERIFIED_CLUSTER_NAMES=()
+declare -ga CKA_VERIFIED_CLUSTER_ROLES=()
+CKA_VERIFIED_CLUSTER_NETWORK_ID=""
+CKA_VERIFIED_CLUSTER_IMAGE_ID=""
+CKA_VERIFIED_NODE_ID=""
+CKA_VERIFIED_NODE_STATE=""
+
+_cluster_docker_id_valid() { [[ "${1:-}" =~ ^[0-9a-f]{64}$ ]]; }
+
+_cluster_verify_node_record() { # <name-or-full-id> <expected-name> <expected-role> <network-id> <image-id>
+  local target="$1" expected_name="$2" expected_role="$3" network_id="$4" image_id="$5"
+  local record id actual_name cluster role image actual_image_id status running paused restarting
+  local network_mode network_count network_present attached_network marker extra
+  record="$(docker container inspect --format \
+    '{{.Id}}|{{.Name}}|{{index .Config.Labels "io.x-k8s.kind.cluster"}}|{{index .Config.Labels "io.x-k8s.kind.role"}}|{{.Config.Image}}|{{.Image}}|{{.State.Status}}|{{.State.Running}}|{{.State.Paused}}|{{.State.Restarting}}|{{.HostConfig.NetworkMode}}|{{len .NetworkSettings.Networks}}|{{if index .NetworkSettings.Networks "kind"}}true{{else}}false{{end}}|{{with index .NetworkSettings.Networks "kind"}}{{.NetworkID}}{{end}}|END' \
+    "$target" 2>/dev/null)" || {
+      err "KIND 노드 container를 정확히 inspect하지 못했습니다: $expected_name"
+      return 1
+    }
+  [ -n "$record" ] && [[ "$record" != *$'\n'* ]] || return 1
+  IFS='|' read -r id actual_name cluster role image actual_image_id status running paused restarting \
+    network_mode network_count network_present attached_network marker extra <<< "$record"
+  _cluster_docker_id_valid "$id" \
+    && [ "$actual_name" = "/$expected_name" ] \
+    && [ "$cluster" = "$CKA_CLUSTER_NAME" ] \
+    && [ "$role" = "$expected_role" ] \
+    && [ "$image" = "$KIND_NODE_IMAGE" ] \
+    && [ "$actual_image_id" = "$image_id" ] \
+    && [ "$paused" = false ] \
+    && [ "$restarting" = false ] \
+    && [ "$network_mode" = "$CKA_KIND_NETWORK_NAME" ] \
+    && [ "$network_count" = 1 ] \
+    && [ "$network_present" = true ] \
+    && [ "$marker" = END ] \
+    && [ -z "${extra:-}" ] || {
+      err "KIND 노드 identity/state/network 검증 실패: $expected_name"
+      return 1
+    }
+  case "$status|$running" in
+    running\|true)
+      [ "$attached_network" = "$network_id" ] || return 1
+      ;;
+    exited\|false)
+      [ -z "$attached_network" ] || [ "$attached_network" = "$network_id" ] || return 1
+      ;;
+    *)
+      err "KIND 노드가 안전하게 복구할 수 없는 상태입니다: $expected_name ($status)"
+      return 1
+      ;;
+  esac
+  CKA_VERIFIED_NODE_ID="$id"
+  CKA_VERIFIED_NODE_STATE="$status"
+}
+
+_cluster_verify_exact_inventory() {
+  local inventory current_id expected_id count=0 matched
+  local -A seen=()
+  inventory="$(docker container ls --all --quiet --no-trunc \
+    --filter "label=io.x-k8s.kind.cluster=$CKA_CLUSTER_NAME" 2>/dev/null)" || {
+      err "KIND cluster container inventory를 읽지 못했습니다."
+      return 1
+    }
+  while IFS= read -r current_id; do
+    [ -n "$current_id" ] || continue
+    _cluster_docker_id_valid "$current_id" || return 1
+    [ -z "${seen[$current_id]:-}" ] || return 1
+    matched=0
+    for expected_id in "${CKA_VERIFIED_CLUSTER_IDS[@]}"; do
+      [ "$current_id" = "$expected_id" ] && matched=1
+    done
+    [ "$matched" -eq 1 ] || {
+      err "예상하지 않은 동일-cluster container를 발견했습니다: $current_id"
+      return 1
+    }
+    seen[$current_id]=1
+    count=$((count + 1))
+  done <<< "$inventory"
+  [ "$count" -eq 3 ] || {
+    err "KIND cluster container inventory는 정확히 3개여야 합니다: actual=$count"
+    return 1
+  }
+  for expected_id in "${CKA_VERIFIED_CLUSTER_IDS[@]}"; do
+    [ "${seen[$expected_id]:-}" = 1 ] || return 1
+  done
+}
+
+_cluster_verify_sealed_network() {
+  local record actual name marker extra
+  record="$(docker network inspect --format '{{.Id}}|{{.Name}}|END' \
+    "$CKA_VERIFIED_CLUSTER_NETWORK_ID" 2>/dev/null)" || return 1
+  [ -n "$record" ] && [[ "$record" != *$'\n'* ]] || return 1
+  IFS='|' read -r actual name marker extra <<< "$record"
+  [ "$actual" = "$CKA_VERIFIED_CLUSTER_NETWORK_ID" ] \
+    && [ "$name" = "$CKA_KIND_NETWORK_NAME" ] \
+    && [ "$marker" = END ] \
+    && [ -z "${extra:-}" ]
+}
+
+_cluster_reverify_sealed_inventory() {
+  local i
+  _cluster_verify_sealed_network && _cluster_verify_exact_inventory || return 1
+  for i in 0 1 2; do
+    _cluster_verify_node_record "${CKA_VERIFIED_CLUSTER_IDS[$i]}" \
+      "${CKA_VERIFIED_CLUSTER_NAMES[$i]}" "${CKA_VERIFIED_CLUSTER_ROLES[$i]}" \
+      "$CKA_VERIFIED_CLUSTER_NETWORK_ID" "$CKA_VERIFIED_CLUSTER_IMAGE_ID" \
+      || return 1
+    [ "$CKA_VERIFIED_NODE_ID" = "${CKA_VERIFIED_CLUSTER_IDS[$i]}" ] \
+      && [ "$CKA_VERIFIED_NODE_STATE" = "${CKA_VERIFIED_CLUSTER_STATES[$i]}" ] \
+      || return 1
+  done
+}
+
+_cluster_capture_verified_inventory() {
+  local network_record network_id network_name image_record image_id marker extra i
+  local -a names=(
+    "${CKA_CLUSTER_NAME}-control-plane"
+    "${CKA_CLUSTER_NAME}-worker"
+    "${CKA_CLUSTER_NAME}-worker2"
+  )
+  local -a roles=(control-plane worker worker)
+
+  network_record="$(docker network inspect --format '{{.Id}}|{{.Name}}|END' \
+    "$CKA_KIND_NETWORK_NAME" 2>/dev/null)" || {
+      err "KIND network를 정확히 inspect하지 못했습니다: $CKA_KIND_NETWORK_NAME"
+      return 1
+    }
+  [ -n "$network_record" ] && [[ "$network_record" != *$'\n'* ]] || return 1
+  IFS='|' read -r network_id network_name marker extra <<< "$network_record"
+  _cluster_docker_id_valid "$network_id" \
+    && [ "$network_name" = "$CKA_KIND_NETWORK_NAME" ] \
+    && [ "$marker" = END ] \
+    && [ -z "${extra:-}" ] || {
+      err "KIND network identity 검증에 실패했습니다: $CKA_KIND_NETWORK_NAME"
+      return 1
+    }
+  image_record="$(docker image inspect --format '{{.Id}}|END' \
+    "$KIND_NODE_IMAGE" 2>/dev/null)" || {
+      err "lock된 KIND node image를 inspect하지 못했습니다: $KIND_NODE_IMAGE"
+      return 1
+    }
+  [ -n "$image_record" ] && [[ "$image_record" != *$'\n'* ]] || return 1
+  IFS='|' read -r image_id marker extra <<< "$image_record"
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    && [ "$marker" = END ] \
+    && [ -z "${extra:-}" ] || {
+      err "lock된 KIND node image identity 검증에 실패했습니다."
+      return 1
+    }
+
+  CKA_VERIFIED_CLUSTER_IDS=()
+  CKA_VERIFIED_CLUSTER_STATES=()
+  CKA_VERIFIED_CLUSTER_NAMES=("${names[@]}")
+  CKA_VERIFIED_CLUSTER_ROLES=("${roles[@]}")
+  CKA_VERIFIED_CLUSTER_NETWORK_ID="$network_id"
+  CKA_VERIFIED_CLUSTER_IMAGE_ID="$image_id"
+  for i in 0 1 2; do
+    _cluster_verify_node_record "${names[$i]}" "${names[$i]}" "${roles[$i]}" \
+      "$network_id" "$image_id" || return 1
+    CKA_VERIFIED_CLUSTER_IDS+=("$CKA_VERIFIED_NODE_ID")
+    CKA_VERIFIED_CLUSTER_STATES+=("$CKA_VERIFIED_NODE_STATE")
+  done
+  _cluster_verify_exact_inventory
+}
+
+recover_cluster_nodes_ordered() {
+  local state_key i id
+  local -a order=(1 0 2) # worker -> control-plane -> worker2
+  _cluster_capture_verified_inventory || return 1
+  state_key="${CKA_VERIFIED_CLUSTER_STATES[0]:0:1}${CKA_VERIFIED_CLUSTER_STATES[1]:0:1}${CKA_VERIFIED_CLUSTER_STATES[2]:0:1}"
+  case "$state_key" in
+    rrr) return 0 ;;
+    eee|ere|rre) ;;
+    *)
+      err "KIND 노드 실행 상태가 ordered recovery의 안전한 prefix가 아닙니다: $state_key"
+      return 1
+      ;;
+  esac
+
+  for i in "${order[@]}"; do
+    [ "${CKA_VERIFIED_CLUSTER_STATES[$i]}" = exited ] || continue
+    _cluster_reverify_sealed_inventory || return 1
+    id="${CKA_VERIFIED_CLUSTER_IDS[$i]}"
+    _cluster_verify_node_record "$id" "${CKA_VERIFIED_CLUSTER_NAMES[$i]}" \
+      "${CKA_VERIFIED_CLUSTER_ROLES[$i]}" "$CKA_VERIFIED_CLUSTER_NETWORK_ID" \
+      "$CKA_VERIFIED_CLUSTER_IMAGE_ID" \
+      || return 1
+    [ "$CKA_VERIFIED_NODE_ID" = "$id" ] \
+      && [ "$CKA_VERIFIED_NODE_STATE" = exited ] || return 1
+    info "중지된 KIND 노드 ordered recovery: ${CKA_VERIFIED_CLUSTER_NAMES[$i]}"
+    docker container start "$id" >/dev/null || {
+      err "KIND 노드를 시작하지 못했습니다: ${CKA_VERIFIED_CLUSTER_NAMES[$i]}"
+      return 1
+    }
+    _cluster_verify_node_record "$id" "${CKA_VERIFIED_CLUSTER_NAMES[$i]}" \
+      "${CKA_VERIFIED_CLUSTER_ROLES[$i]}" "$CKA_VERIFIED_CLUSTER_NETWORK_ID" \
+      "$CKA_VERIFIED_CLUSTER_IMAGE_ID" \
+      || return 1
+    [ "$CKA_VERIFIED_NODE_ID" = "$id" ] \
+      && [ "$CKA_VERIFIED_NODE_STATE" = running ] || return 1
+    CKA_VERIFIED_CLUSTER_STATES[$i]=running
+  done
+  _cluster_reverify_sealed_inventory
+}
+
+_cluster_restart_policy_get() { # <full-id>
+  local id="$1" record actual policy marker extra
+  record="$(docker container inspect --format \
+    '{{.Id}}|{{.HostConfig.RestartPolicy.Name}}|END' "$id" 2>/dev/null)" || return 1
+  [ -n "$record" ] && [[ "$record" != *$'\n'* ]] || return 1
+  IFS='|' read -r actual policy marker extra <<< "$record"
+  [ "$actual" = "$id" ] && [ "$marker" = END ] && [ -z "${extra:-}" ] || return 1
+  printf '%s\n' "$policy"
+}
+
+configure_cluster_restart_policies() {
+  # all-running recovery 자체는 lifecycle을 건드리지 않는다. 기존 정책의 1회
+  # migration은 명시적 `cka cluster up`에서 이 helper를 호출할 때만 수행한다.
+  local cp_policy worker_policy worker2_policy
+  local -a no_ids=()
+  _cluster_capture_verified_inventory || return 1
+  [ "${CKA_VERIFIED_CLUSTER_STATES[*]}" = "running running running" ] || {
+    err "restart policy는 세 KIND 노드가 모두 running일 때만 변경합니다."
+    return 1
+  }
+  cp_policy="$(_cluster_restart_policy_get "${CKA_VERIFIED_CLUSTER_IDS[0]}")" || return 1
+  worker_policy="$(_cluster_restart_policy_get "${CKA_VERIFIED_CLUSTER_IDS[1]}")" || return 1
+  worker2_policy="$(_cluster_restart_policy_get "${CKA_VERIFIED_CLUSTER_IDS[2]}")" || return 1
+  [ "$cp_policy" = no ] || no_ids+=("${CKA_VERIFIED_CLUSTER_IDS[0]}")
+  [ "$worker2_policy" = no ] || no_ids+=("${CKA_VERIFIED_CLUSTER_IDS[2]}")
+
+  _cluster_reverify_sealed_inventory || return 1
+  if [ "${#no_ids[@]}" -gt 0 ]; then
+    docker container update --restart=no "${no_ids[@]}" >/dev/null || {
+      err "control-plane/worker2 restart policy를 no로 고정하지 못했습니다."
+      return 1
+    }
+  fi
+  if [ "$worker_policy" != unless-stopped ]; then
+    _cluster_reverify_sealed_inventory || return 1
+    docker container update --restart=unless-stopped \
+      "${CKA_VERIFIED_CLUSTER_IDS[1]}" >/dev/null || {
+        err "worker restart policy를 unless-stopped로 고정하지 못했습니다."
+        return 1
+      }
+  fi
+  [ "$(_cluster_restart_policy_get "${CKA_VERIFIED_CLUSTER_IDS[0]}")" = no ] \
+    && [ "$(_cluster_restart_policy_get "${CKA_VERIFIED_CLUSTER_IDS[1]}")" = unless-stopped ] \
+    && [ "$(_cluster_restart_policy_get "${CKA_VERIFIED_CLUSTER_IDS[2]}")" = no ] || {
+      err "KIND 노드 restart policy 사후 검증에 실패했습니다."
+      return 1
+    }
+  _cluster_reverify_sealed_inventory
+}
 
 # 모든 노드에 vi가 있으면 0(정상)
 node_editors_ok() {
@@ -99,47 +622,54 @@ install_node_editors() {
   printf '%s' "$repaired"
 }
 
-# ── 노드 etcdctl·etcdutl (control-plane) ──────────────────────────
-# 실전 시험 노드에는 etcdctl이 설치돼 있어 `ssh <cp>` 후 바로 스냅샷을 뜬다.
-# kind 노드에는 없고 etcd Pod(distroless) 안에만 있어 ca-03/ca-04가 kubectl exec
-# 우회를 강요받았다. 실행 중인 etcd 이미지와 같은 버전의 릴리스를 받아 노드
-# /usr/local/bin에 심어 실전과 같은 손버릇으로 풀 수 있게 한다. 편집기 설치와
-# 마찬가지로 실패해도 Pod exec으로 대체 가능하므로 비치명적으로 처리한다.
+# ── 노드 etcdctl/etcdutl (실전과 동일한 etcd 작업 환경) ──────────
+# 실제 CKA 시험은 control plane 노드에 ssh로 들어가 노드의 etcdctl을 쓴다.
+# kind 노드 이미지에는 etcdctl이 없어서 예전에는 `kubectl exec etcd-... -- etcdctl`
+# 로 우회했는데, 실전에 없는 명령이 손에 익는 손해가 있다. etcd 이미지는 이미
+# 노드에 받아져 있으므로 실행 중인 etcd 컨테이너의 proc rootfs에서 바이너리를
+# 꺼내 노드에 설치한다 (네트워크·containerd snapshot mount 불필요).
+CKA_CP_NODE_SUFFIX="control-plane"
+
+cka_cp_node() { printf '%s' "${CKA_CLUSTER_NAME}-${CKA_CP_NODE_SUFFIX}"; }
+
 node_etcdctl_ok() {
-  docker exec "$(cka_control_plane_node)" sh -c \
-    'command -v etcdctl >/dev/null 2>&1 && command -v etcdutl >/dev/null 2>&1'
+  docker exec "$(cka_cp_node)" sh -c \
+    'command -v etcd >/dev/null 2>&1 && command -v etcdctl >/dev/null 2>&1 && command -v etcdutl >/dev/null 2>&1' 2>/dev/null
 }
 
-# 없을 때만 설치하고 설치했으면 1, 아니면 0을 echo(멱등).
+# control plane 노드에 etcdctl·etcdutl 설치 (멱등). 설치했으면 0, 이미 있으면 1.
 install_node_etcdctl() {
-  local cp img ver arch tmp
-  cp="$(cka_control_plane_node)"
-  node_etcdctl_ok 2>/dev/null && { printf '0'; return; }
-  # 실행 중인 etcd static pod 이미지에서 버전 추출: registry.k8s.io/etcd:3.5.15-0 → 3.5.15
-  img="$(kctx -n kube-system get pod "etcd-$cp" -o jsonpath='{.spec.containers[0].image}' 2>/dev/null)"
-  ver="${img##*:}"; ver="${ver%%-*}"
-  case "$ver" in
-    [0-9]*.[0-9]*.[0-9]*) : ;;
-    *) warn "etcd 이미지 버전 확인 실패 (${img:-없음}) — etcdctl 노드 설치를 건너뜁니다." >&2
-       printf '0'; return ;;
-  esac
-  case "$(docker exec "$cp" uname -m 2>/dev/null)" in
-    aarch64|arm64) arch=arm64 ;;
-    *) arch=amd64 ;;
-  esac
-  # 호스트에서 받아 docker cp — 노드의 curl/tar/네트워크 유무에 의존하지 않는다
-  tmp="$(mktemp -d)"
-  if curl -fsSL "https://github.com/etcd-io/etcd/releases/download/v${ver}/etcd-v${ver}-linux-${arch}.tar.gz" \
-        | tar -xz -C "$tmp" 2>/dev/null \
-     && docker cp "$tmp/etcd-v${ver}-linux-${arch}/etcdctl" "$cp:/usr/local/bin/etcdctl" >/dev/null 2>&1 \
-     && docker cp "$tmp/etcd-v${ver}-linux-${arch}/etcdutl" "$cp:/usr/local/bin/etcdutl" >/dev/null 2>&1 \
-     && docker exec "$cp" chmod +x /usr/local/bin/etcdctl /usr/local/bin/etcdutl 2>/dev/null; then
-    rm -rf "$tmp"; printf '1'
-  else
-    rm -rf "$tmp"
-    warn "$cp etcdctl·etcdutl 설치 실패 (네트워크 확인). etcd Pod exec로 대체 가능." >&2
-    printf '0'
-  fi
+  local node container_id container_pid
+  node="$(cka_cp_node)"
+  node_etcdctl_ok && return 1
+
+  container_id="$(docker exec "$node" crictl ps -q \
+    --label io.kubernetes.container.name=etcd 2>/dev/null)"
+  [[ "$container_id" =~ ^[0-9a-f]{64}$ ]] || {
+    warn "$node 의 실행 중인 etcd 컨테이너를 하나로 식별하지 못했습니다." >&2
+    return 1
+  }
+  container_pid="$(docker exec "$node" crictl inspect -o go-template \
+    --template '{{.info.pid}}' "$container_id" 2>/dev/null)"
+  [[ "$container_pid" =~ ^[1-9][0-9]*$ ]] || {
+    warn "$node 의 etcd 컨테이너 PID를 확인하지 못했습니다." >&2
+    return 1
+  }
+
+  docker exec "$node" sh -c "
+    set -e
+    test -x '/proc/$container_pid/root/usr/local/bin/etcd'
+    test -x '/proc/$container_pid/root/usr/local/bin/etcdctl'
+    test -x '/proc/$container_pid/root/usr/local/bin/etcdutl'
+    install -m 0755 '/proc/$container_pid/root/usr/local/bin/etcd' /usr/local/bin/etcd
+    install -m 0755 '/proc/$container_pid/root/usr/local/bin/etcdctl' /usr/local/bin/etcdctl
+    install -m 0755 '/proc/$container_pid/root/usr/local/bin/etcdutl' /usr/local/bin/etcdutl
+  " >/dev/null 2>&1 || {
+    warn "$node 에 etcdctl·etcdutl 설치 실패" >&2
+    return 1
+  }
+  node_etcdctl_ok || return 1
+  return 0
 }
 
 # 애드온 설치·점검 함수 (metrics-server·ingress-nginx·gateway-api·grader-client)
@@ -159,14 +689,47 @@ _wait_api() {
   die "클러스터에 연결할 수 없습니다. 'cka cluster status' 로 상태를 확인하세요."
 }
 
-# WSL 재시작·중단된 셋업으로 애드온이 유실되면 문제 풀이가 조용히 깨진다.
-# 그래서 문제 시작·채점 전에 API 기동을 기다린 뒤 빠진 애드온을 자동 복구한다.
-# (install은 apply 기반이라 멱등 — 정상일 땐 빠른 존재 점검만 하고 넘어간다.)
-require_cluster() {
+# 채점 전 검사는 관찰만 해야 한다. 특히 CoreDNS/Ingress 장애 문제를 채점하기 직전에
+# 애드온을 복구하면 오답 상태가 사라져 버린다.
+require_cluster_readonly() {
   _wait_api
-  local repaired; repaired="$(ensure_addons)"
+}
+
+# 일반 연습 시작/reset/doctor 경로용 명시적 복구. 기존 require_cluster의 동작을
+# 유지하되 mutation의 이름과 경계를 분명히 한다.
+repair_cluster() {
+  local exists_rc=0
+  kind_cluster_exists || exists_rc=$?
+  case "$exists_rc" in
+    0) ;;
+    1)
+      err "KIND 클러스터 '$CKA_CLUSTER_NAME'가 없습니다. 먼저 './cka cluster up'을 실행하세요."
+      return 1
+      ;;
+    *)
+      err "KIND 클러스터 inventory를 읽지 못했습니다. Docker daemon과 KIND 설치를 확인하세요."
+      return 1
+      ;;
+  esac
+  if ! recover_cluster_nodes_ordered; then
+    err "KIND 노드 identity 검증 또는 ordered recovery에 실패했습니다."
+    return 1
+  fi
+  require_cluster_readonly
+  local repaired
+  if ! repaired="$(ensure_addons)"; then
+    err "클러스터 애드온 복구 또는 readiness/version 검증에 실패했습니다."
+    return 1
+  fi
   [ "${repaired:-0}" -gt 0 ] && ok "클러스터 애드온 $repaired건 자동 복구 완료."
   return 0
+}
+
+# 하위 호환 entrypoint: 기존 호출자와 똑같이 API 확인 후 애드온을 복구한다.
+# grader는 require_cluster_readonly를 명시적으로 호출해야 하며, 호출 스택이나
+# 환경 변수에 따라 이 함수의 의미가 바뀌지 않게 유지한다.
+require_cluster() {
+  repair_cluster
 }
 
 # 문제 ID → 도메인 디렉토리
@@ -196,17 +759,91 @@ state_set() { mkdir -p "$CKA_STATE_DIR/status"; printf '%s' "$2" > "$CKA_STATE_D
 state_get() { cat "$CKA_STATE_DIR/status/$1" 2>/dev/null || printf '%s' "-"; }
 state_clear() { rm -f "$CKA_STATE_DIR/status/$1"; }
 
+# 새 모의고사 runner와 CLI/web guard가 공유하는 최소 상태 인터페이스.
+# 파일이 없을 때만 NONE이다. 손상되거나 읽을 수 없는 상태는 fail-closed로 잠근다.
+exam_state_get() {
+  local state="" path="$CKA_STATE_DIR/exam/state"
+  [ -e "$path" ] || { printf '%s\n' NONE; return 0; }
+  [ -r "$path" ] || { printf '%s\n' CORRUPT; return 0; }
+  IFS= read -r state < "$path" || true
+  state="${state%$'\r'}"
+  case "$state" in
+    PREPARING|RUNNING|SEALED|GRADING|ARCHIVED|INVALID) printf '%s\n' "$state" ;;
+    *) printf '%s\n' CORRUPT ;;
+  esac
+}
+
+exam_actions_locked() {
+  case "$(exam_state_get)" in
+    NONE|ARCHIVED|INVALID) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Remove one direct child of the CKA state directory.  Destructive callers
+# must not trust a user-provided CKA_STATE_DIR until its canonical path and the
+# exact child target have both been checked.
+state_subdir_clear() { # <single-child-name>
+  local child="${1:-}" requested root target
+  [[ "$child" =~ ^[a-z0-9][a-z0-9-]*$ ]] || return 1
+  [ -n "${CKA_STATE_DIR:-}" ] && [[ "$CKA_STATE_DIR" = /* ]] || return 1
+  requested="${CKA_STATE_DIR%/}"
+  [ -n "$requested" ] && [ "$requested" != / ] || return 1
+  [ ! -L "$requested" ] || return 1
+  mkdir -p -- "$requested" || return 1
+  [ -d "$requested" ] && [ ! -L "$requested" ] || return 1
+  root="$(realpath -e -- "$requested")" || return 1
+  [ "$root" = "$requested" ] && [ "$root" != / ] || return 1
+  target="$root/$child"
+  [ "$target" = "$root/$child" ] || return 1
+  if [ -L "$target" ]; then
+    err "symlink인 상태 경로는 자동 삭제하지 않습니다: $target"
+    return 1
+  fi
+  [ ! -e "$target" ] || [ -d "$target" ] || return 1
+  rm -rf -- "$target"
+}
+
+question_state_clear() { # <qid>
+  local id="${1:-}" requested root question_root target
+  [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
+  [ -n "${CKA_STATE_DIR:-}" ] && [[ "$CKA_STATE_DIR" = /* ]] || return 1
+  requested="${CKA_STATE_DIR%/}"
+  [ -n "$requested" ] && [ "$requested" != / ] && [ ! -L "$requested" ] || return 1
+  mkdir -p -- "$requested" || return 1
+  root="$(realpath -e -- "$requested")" || return 1
+  [ "$root" = "$requested" ] && [ "$root" != / ] || return 1
+  question_root="$root/question-data"
+  [ ! -L "$question_root" ] || return 1
+  mkdir -p -- "$question_root" || return 1
+  [ "$(realpath -e -- "$question_root")" = "$question_root" ] || return 1
+  target="$question_root/$id"
+  [ ! -L "$target" ] || return 1
+  [ ! -e "$target" ] || [ -d "$target" ] || return 1
+  rm -rf -- "$target"
+}
+
 # ── setup.sh 헬퍼 ────────────────────────────────────────────────
 # 문제가 만든 리소스는 전부 라벨(cka-practice/question=<id>)로 추적한다.
 
 # 해당 문제의 리소스 일괄 삭제 (idempotent한 setup을 위해 항상 먼저 호출)
 cleanup_question() {
-  local id="$1"
-  kctx delete ns -l "$CKA_LABEL_KEY=$id" --ignore-not-found --wait=true >/dev/null 2>&1
+  local id="$1" failed=0
+  [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
+  kctx delete ns -l "$CKA_LABEL_KEY=$id" --ignore-not-found --wait=true \
+    --timeout=90s >/dev/null 2>&1 || failed=1
   kctx delete pv,storageclass,priorityclass,clusterrole,clusterrolebinding \
-    -l "$CKA_LABEL_KEY=$id" --ignore-not-found >/dev/null 2>&1
-  kctx delete gatewayclass -l "$CKA_LABEL_KEY=$id" --ignore-not-found >/dev/null 2>&1 || true
-  rm -rf "${CKA_WORK_DIR:?}/$id"
+    -l "$CKA_LABEL_KEY=$id" --ignore-not-found --wait=true --timeout=90s \
+    >/dev/null 2>&1 || failed=1
+  # Extension APIs are intentionally absent from some disposable cells.  An
+  # absent Gateway API CRD means there is nothing to clean, not that cleanup
+  # failed.  Once the CRD exists, however, deletion failures remain fatal.
+  if kctx get crd gatewayclasses.gateway.networking.k8s.io >/dev/null 2>&1; then
+    kctx delete gatewayclass -l "$CKA_LABEL_KEY=$id" --ignore-not-found \
+      --wait=true --timeout=90s >/dev/null 2>&1 || failed=1
+  fi
+  workdir_clear "$id" || failed=1
+  return "$failed"
 }
 
 # 문제용 네임스페이스 생성 + 라벨링: recreate_ns <qid> <ns...>
@@ -214,16 +851,43 @@ recreate_ns() {
   local id="$1"; shift
   local ns
   for ns in "$@"; do
-    kctx delete namespace "$ns" --ignore-not-found --wait=true >/dev/null 2>&1
+    kctx delete namespace "$ns" --ignore-not-found --wait=true --timeout=90s >/dev/null 2>&1
     kctx create namespace "$ns" >/dev/null
     kctx label namespace "$ns" "$CKA_LABEL_KEY=$id" --overwrite >/dev/null
   done
 }
 
-# 파일 제출형 문제의 작업 디렉토리 준비: workdir_reset <qid>
-workdir_reset() {
-  rm -rf "${CKA_WORK_DIR:?}/$1"
-  mkdir -p "$CKA_WORK_DIR/$1"
+# 파일 제출형 문제의 작업 디렉토리 안전 정리/준비.
+workdir_root_resolve() {
+  local requested root
+  [ -n "${CKA_WORK_DIR:-}" ] && [[ "$CKA_WORK_DIR" = /* ]] || return 1
+  requested="${CKA_WORK_DIR%/}"
+  [ -n "$requested" ] && [ "$requested" != / ] || return 1
+  [ ! -L "$requested" ] || return 1
+  mkdir -p -- "$requested" || return 1
+  root="$(realpath -e -- "$requested")" || return 1
+  [ "$root" = "$requested" ] && [ "$root" != / ] || return 1
+  printf '%s\n' "$root"
+}
+
+workdir_clear() { # <qid>
+  local id="$1" root target
+  [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
+  root="$(workdir_root_resolve)" || return 1
+  target="$root/$id"
+  if [ -L "$target" ]; then
+    err "symlink인 문제 작업 경로는 자동 삭제하지 않습니다: $target"
+    return 1
+  fi
+  [ ! -e "$target" ] || [ -d "$target" ] || return 1
+  rm -rf -- "$target"
+}
+
+workdir_reset() { # <qid>
+  local id="$1" root
+  workdir_clear "$id" || return 1
+  root="$(workdir_root_resolve)" || return 1
+  mkdir -p -- "$root/$id"
 }
 
 wait_deploy() { # wait_deploy <ns> <name> [timeout]

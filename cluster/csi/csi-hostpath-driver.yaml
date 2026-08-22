@@ -1,0 +1,215 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: csi-hostpath
+  labels:
+    cka-practice/question: st-06
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-hostpathplugin
+  namespace: csi-hostpath
+  labels:
+    cka-practice/question: st-06
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: csi-hostpathplugin-cka
+  labels:
+    cka-practice/question: st-06
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments/status"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: csi-hostpathplugin-cka
+  labels:
+    cka-practice/question: st-06
+subjects:
+  - kind: ServiceAccount
+    name: csi-hostpathplugin
+    namespace: csi-hostpath
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: csi-hostpathplugin-cka
+---
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: hostpath.csi.k8s.io
+  labels:
+    cka-practice/question: st-06
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+  fsGroupPolicy: File
+  volumeLifecycleModes:
+    - Persistent
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: csi-hostpathplugin
+  namespace: csi-hostpath
+  labels:
+    app: csi-hostpathplugin
+    cka-practice/question: st-06
+spec:
+  serviceName: csi-hostpathplugin
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csi-hostpathplugin
+  template:
+    metadata:
+      labels:
+        app: csi-hostpathplugin
+        cka-practice/question: st-06
+    spec:
+      serviceAccountName: csi-hostpathplugin
+      nodeSelector:
+        cka-practice/csi-node: "true"
+      containers:
+        - name: hostpath
+          image: registry.k8s.io/sig-storage/hostpathplugin@sha256:cf08eec6a810b81299e6342719fb77c4c4072fbd43541c30ae1a4ca47a93c326
+          imagePullPolicy: Never
+          args:
+            - --drivername=hostpath.csi.k8s.io
+            - --endpoint=$(CSI_ENDPOINT)
+            - --nodeid=$(KUBE_NODE_NAME)
+            - --v=4
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          ports:
+            - name: healthz
+              containerPort: 9898
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            periodSeconds: 3
+            timeoutSeconds: 2
+            failureThreshold: 5
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: mountpoint-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: Bidirectional
+            - name: plugins-dir
+              mountPath: /var/lib/kubelet/plugins
+              mountPropagation: Bidirectional
+            - name: data-dir
+              mountPath: /csi-data-dir
+            - name: dev-dir
+              mountPath: /dev
+        - name: node-driver-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar@sha256:0fc05c749072bea889beffc97499f6836f74aebe351c78ff8d90d671c35f04da
+          imagePullPolicy: Never
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/csi-hostpath/csi.sock
+            - --http-endpoint=:9809
+            - --v=4
+          securityContext:
+            privileged: true
+          ports:
+            - name: reg-health
+              containerPort: 9809
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: reg-health
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+        - name: liveness-probe
+          image: registry.k8s.io/sig-storage/livenessprobe@sha256:c966d36f5353f71033c1a7b0321a9a670f8929af8740f714e455902b312a82a6
+          imagePullPolicy: Never
+          args:
+            - --csi-address=/csi/csi.sock
+            - --health-port=9898
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        - name: csi-provisioner
+          image: registry.k8s.io/sig-storage/csi-provisioner@sha256:54de28a6565647405647b34d092eefb4a51c7be14f29bdafc721773a5ec0600c
+          imagePullPolicy: Never
+          args:
+            - --csi-address=/csi/csi.sock
+            - --feature-gates=Topology=true
+            - --v=4
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        - name: csi-attacher
+          image: registry.k8s.io/sig-storage/csi-attacher@sha256:41dc0a91e103ee2e499df459526eb76ae57db0e8789385757df34fdac11e92d8
+          imagePullPolicy: Never
+          args:
+            - --csi-address=/csi/csi.sock
+            - --v=4
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/csi-hostpath
+            type: DirectoryOrCreate
+        - name: mountpoint-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: plugins-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins
+            type: Directory
+        - name: data-dir
+          hostPath:
+            path: /var/lib/csi-hostpath-data
+            type: DirectoryOrCreate
+        - name: dev-dir
+          hostPath:
+            path: /dev
+            type: Directory

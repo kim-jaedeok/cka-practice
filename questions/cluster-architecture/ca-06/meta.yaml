@@ -1,5 +1,14 @@
 id: ca-06
-title: Prepare a worker node upgrade (kubeadm)
+title: Upgrade a worker node with kubeadm
 domain: cluster-architecture
-points: 6
-minutes: 9
+points: 8
+minutes: 12
+environment: kubeadm-upgrade
+mode: individual-only
+mock_exam: false
+destructive: true
+isolation: disposable-cell
+designated_host: worker2
+ssh_profile: node-admin
+setup_timeout_seconds: 900
+grade_timeout_seconds: 240

@@ -10,21 +10,12 @@ etcdutl snapshot restore /var/lib/etcd/snapshot-restore-src.db \
 
 # 구조 확인
 ls -R /var/lib/etcd/restore-drill/member
-```
-
-## 대체 방식 (etcd Pod exec)
-
-노드의 etcdutl이 유실됐다면 (`cka cluster doctor`로 복구 가능) etcd Pod 안에서
-같은 명령을 실행해도 된다.
-
-```bash
-kubectl -n kube-system exec etcd-cka-control-plane -- etcdutl \
-  snapshot restore /var/lib/etcd/snapshot-restore-src.db \
-  --data-dir /var/lib/etcd/restore-drill
+exit
 ```
 
 ## 해설 (한국어)
 
+- 복원은 **control plane 노드에서** 한다 (`ssh cka-control-plane`) — 실제 시험과 동일하다.
 - `etcdutl snapshot restore`는 **오프라인 파일 작업**이다 — 서버 연결이나 인증서가
   필요 없고, 스냅샷을 새 데이터 디렉토리 구조(member/snap, member/wal)로 풀어낸다.
   `--data-dir`가 이미 존재하고 비어있지 않으면 실패한다.
@@ -44,7 +35,7 @@ kubectl -n kube-system exec etcd-cka-control-plane -- etcdutl \
 
 | 배점 | 검증 항목 | 검증 방법 |
 |---|---|---|
-| 3 | member/snap, member/wal 구조 생성 | 노드 파일시스템 확인 |
-| 1 | member/snap/db 파일 존재 | 노드 파일시스템 확인 |
+| 3 | source와 같은 revision/keyspace의 member/snap·wal 복원 | `snapshot status` 비교 + grader reference/candidate member 격리 기동·health·live `hashkv` 비교 |
+| 1 | member/snap/db 파일 유효성 | `etcdutl snapshot status` 재검증 |
 | 1 | 소스 스냅샷 보존 | 파일 존재 확인 |
 | 1 | 클러스터 무중단 (etcd 정상) | etcd Pod Ready |

@@ -1,0 +1,15 @@
+case "$-" in
+  *i*) ;;
+  *) return ;;
+esac
+
+export HISTCONTROL=ignoreboth
+export KUBECONFIG="${HOME}/.kube/config"
+export PS1='\u@\h:\w\$ '
+
+alias k=kubectl
+if command -v kubectl >/dev/null 2>&1; then
+  # Generated from the pinned client at shell start, matching the exam habit.
+  source <(kubectl completion bash)
+  complete -o default -F __start_kubectl k
+fi

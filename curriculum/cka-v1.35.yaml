@@ -1,0 +1,123 @@
+{
+  "version": "v1.35",
+  "source": "https://training.linuxfoundation.org/certification/certified-kubernetes-administrator-cka/",
+  "policy": {
+    "covered": "At least one hands-on lab exercises the complete competency.",
+    "partial": "A hands-on lab exists, but an important outcome is simulated or unchecked.",
+    "gap": "No hands-on lab currently exercises the competency."
+  },
+  "implementationValidation": {
+    "status": "practice-ready-live-complete",
+    "requiredLiveSuites": [
+      "tests/kubeadm-live-test.sh",
+      "tests/operator-gateway-live-test.sh",
+      "tests/csi-live-test.sh",
+      "tests/ssh-supervised-live-test.sh"
+    ],
+    "liveResults": {
+      "validatedOn": "2026-08-23",
+      "passed": [
+        {
+          "suite": "tests/kubeadm-live-test.sh",
+          "cases": ["ca-12", "ca-11", "ca-06"],
+          "cleanup": "passed"
+        },
+        {
+          "suite": "tests/operator-gateway-live-test.sh",
+          "cases": ["ca-09", "ca-13", "sn-05"],
+          "cleanup": "passed"
+        },
+        {
+          "suite": "tests/csi-live-test.sh",
+          "cases": ["st-06"],
+          "cleanup": "passed"
+        },
+        {
+          "suite": "tests/ssh-supervised-live-test.sh",
+          "cases": [
+            "wl-03", "wl-02", "ts-01", "ts-03", "wl-08", "ts-02",
+            "ts-04", "sn-01", "st-01", "sn-09", "sn-08", "st-04",
+            "ca-01", "ca-02", "ca-05", "ca-08", "ts-10"
+          ],
+          "host": "clean Ubuntu 24.04 WSL2 (Windows Subsystem for Linux 2)",
+          "score": "104/104",
+          "deadlineVerdict": "TIMEOUT",
+          "guardRestart": "passed",
+          "sshPath": "base-to-target passed",
+          "cleanup": "passed",
+          "postCleanupObjects": {
+            "kindClusters": 0,
+            "sshObjects": 0,
+            "kindNodes": 0,
+            "kindNetworks": 0,
+            "dockerVolumes": 0
+          },
+          "supportingChecksPassed": [
+            "tests/ssh-supervisor-docker-smoke.sh",
+            "tests/ssh-runner-docker-smoke.sh"
+          ]
+        }
+      ],
+      "pending": []
+    }
+  },
+  "domains": [
+    {
+      "id": "storage",
+      "weight": 10,
+      "competencies": [
+        {"id": "storage-classes-dynamic-provisioning", "status": "covered", "labs": ["st-02", "st-06"], "planned": []},
+        {"id": "volume-types-access-modes-reclaim-policies", "status": "covered", "labs": ["st-01", "st-03", "st-05"], "planned": []},
+        {"id": "persistent-volumes-and-claims", "status": "covered", "labs": ["st-01", "st-04"], "planned": []}
+      ]
+    },
+    {
+      "id": "troubleshooting",
+      "weight": 30,
+      "competencies": [
+        {"id": "clusters-and-nodes", "status": "covered", "labs": ["ts-05", "ts-13", "ts-14"], "planned": []},
+        {"id": "cluster-components", "status": "covered", "labs": ["ts-06", "ts-12", "ts-13", "ts-15"], "planned": []},
+        {"id": "resource-usage", "status": "covered", "labs": ["ts-08"], "planned": []},
+        {"id": "container-output-streams", "status": "covered", "labs": ["ts-07"], "planned": []},
+        {"id": "services-and-networking", "status": "covered", "labs": ["ts-03", "ts-11", "ts-15"], "planned": []}
+      ]
+    },
+    {
+      "id": "workloads-scheduling",
+      "weight": 15,
+      "competencies": [
+        {"id": "deployments-rollouts-rollbacks", "status": "covered", "labs": ["wl-01"], "planned": []},
+        {"id": "configmaps-and-secrets", "status": "covered", "labs": ["wl-06"], "planned": []},
+        {"id": "workload-autoscaling", "status": "covered", "labs": ["wl-03"], "planned": []},
+        {"id": "self-healing-deployments", "status": "covered", "labs": ["wl-04"], "planned": []},
+        {"id": "pod-admission-and-scheduling", "status": "covered", "labs": ["wl-05", "wl-07", "wl-08"], "planned": []}
+      ]
+    },
+    {
+      "id": "cluster-architecture",
+      "weight": 25,
+      "competencies": [
+        {"id": "rbac", "status": "covered", "labs": ["ca-01", "ca-02", "ts-10"], "planned": []},
+        {"id": "underlying-infrastructure", "status": "covered", "labs": ["ca-12"], "planned": []},
+        {"id": "kubeadm-clusters", "status": "covered", "labs": ["ca-06", "ca-11", "ca-12"], "planned": []},
+        {"id": "cluster-lifecycle", "status": "covered", "labs": ["ca-03", "ca-04", "ca-05", "ca-06", "ca-11", "ca-12"], "planned": []},
+        {"id": "high-availability-control-plane", "status": "covered", "labs": ["ca-11"], "planned": []},
+        {"id": "helm-and-kustomize", "status": "covered", "labs": ["ca-07", "ca-08"], "planned": []},
+        {"id": "extension-interfaces", "status": "covered", "labs": ["ts-14", "st-06"], "planned": []},
+        {"id": "crds-and-operators", "status": "covered", "labs": ["ca-09", "ca-13"], "planned": []}
+      ]
+    },
+    {
+      "id": "services-networking",
+      "weight": 20,
+      "competencies": [
+        {"id": "pod-connectivity", "status": "covered", "labs": ["sn-07"], "planned": []},
+        {"id": "network-policies", "status": "covered", "labs": ["sn-03", "sn-10"], "planned": []},
+        {"id": "service-types-and-endpoints", "status": "covered", "labs": ["sn-01", "sn-02", "sn-07", "sn-09"], "planned": []},
+        {"id": "gateway-api", "status": "covered", "labs": ["sn-05"], "planned": []},
+        {"id": "ingress", "status": "covered", "labs": ["sn-04", "ts-11"], "planned": []},
+        {"id": "coredns", "status": "covered", "labs": ["sn-06", "sn-08", "ts-06"], "planned": []}
+      ]
+    }
+  ]
+}

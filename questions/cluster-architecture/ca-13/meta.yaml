@@ -1,0 +1,14 @@
+id: ca-13
+title: Install a pinned Kubernetes operator offline
+domain: cluster-architecture
+points: 12
+minutes: 15
+environment: operator-cell
+mode: individual-only
+mock_exam: false
+destructive: true
+isolation: disposable-cell
+designated_host: operator-admin
+ssh_profile: operator-admin
+setup_timeout_seconds: 600
+grade_timeout_seconds: 180

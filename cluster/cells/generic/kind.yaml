@@ -1,0 +1,7 @@
+# Standard disposable question cell. Infrastructure-heavy add-ons are loaded
+# only by the selected question profile after this base cluster is READY.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker

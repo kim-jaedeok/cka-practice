@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# 모범 답안 자동 적용 (selftest용) — answer.md와 동일한 내용
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../../../lib/common.sh"
+source "$CKA_ROOT/lib/cell.sh"
+
+cell_activate sn-05 gateway-cell
 
 kctx apply -f - <<'EOF'
 apiVersion: gateway.networking.k8s.io/v1
@@ -10,7 +12,7 @@ metadata:
   name: main-gw
   namespace: traffic
 spec:
-  gatewayClassName: nginx
+  gatewayClassName: envoy-cka
   listeners:
     - name: http
       protocol: HTTP
@@ -25,6 +27,7 @@ metadata:
 spec:
   parentRefs:
     - name: main-gw
+      sectionName: http
   hostnames:
     - shop.example.com
   rules:
@@ -36,3 +39,12 @@ spec:
         - name: store-svc
           port: 80
 EOF
+
+for _ in $(seq 1 120); do
+  accepted="$(kctx -n traffic get gateway main-gw -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)"
+  programmed="$(kctx -n traffic get gateway main-gw -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || true)"
+  route="$(kctx -n traffic get httproute store-route -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)"
+  [ "$accepted|$programmed|$route" = "True|True|True" ] && exit 0
+  sleep 1
+done
+exit 1

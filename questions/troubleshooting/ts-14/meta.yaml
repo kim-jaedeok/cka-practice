@@ -1,0 +1,8 @@
+id: ts-14
+title: Recover containerd CRI and node CNI
+domain: troubleshooting
+points: 8
+minutes: 14
+mode: individual-only
+mock_exam: false
+destructive: true

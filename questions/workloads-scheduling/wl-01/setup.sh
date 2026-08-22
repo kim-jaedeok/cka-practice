@@ -25,6 +25,9 @@ spec:
           image: nginx:1.28
 EOF
 wait_deploy dept-x api-server
+mkdir -p "$CKA_STATE_DIR/question-data/wl-01"
+kctx -n dept-x get deploy api-server -o jsonpath='{.metadata.uid}' \
+  > "$CKA_STATE_DIR/question-data/wl-01/baseline-deployment-uid"
 
 # 고장난 이미지로 업데이트 → 롤아웃이 막힌 상태를 만든다
 kctx -n dept-x set image deploy/api-server api=nginx:1.99-broken >/dev/null

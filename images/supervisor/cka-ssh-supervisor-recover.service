@@ -1,0 +1,18 @@
+[Unit]
+Description=CKA SSH supervisor boot-time fail-closed recovery notice
+Documentation=https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# Deployment must replace /opt/cka-practice and RUN_ID.  This unit is a
+# packaging template, not an automatically enabled service.
+Environment=RUN_ID=REPLACE_ME
+ExecStart=/opt/cka-practice/exam/ssh/session.sh recover --run-id ${RUN_ID}
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

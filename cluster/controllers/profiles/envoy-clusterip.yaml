@@ -1,0 +1,39 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: cka-clusterip
+  namespace: envoy-gateway-system
+  labels:
+    cka-practice.io/controller-infrastructure: "true"
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        container:
+          image: docker.io/envoyproxy/envoy:distroless-v1.39.0@sha256:9e24a3b459b463dd37e116a0f46d2abfcb6a1cb9897d87e85cf2ee25edbe373b
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: envoy
+                      imagePullPolicy: Never
+      envoyService:
+        type: ClusterIP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy-cka
+  labels:
+    cka-practice.io/controller-infrastructure: "true"
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: cka-clusterip
+    namespace: envoy-gateway-system

@@ -1,0 +1,8 @@
+id: ts-15
+title: Diagnose Service kube-proxy and CNI failures
+domain: troubleshooting
+points: 8
+minutes: 18
+mode: individual-only
+mock_exam: false
+destructive: true

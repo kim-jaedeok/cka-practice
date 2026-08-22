@@ -1,0 +1,14 @@
+# Disposable stacked-etcd HA cell: three control-plane nodes, three workers and
+# kind's TCP API load balancer.  cp2/cp3 are reset after creation so candidates
+# perform the real kubeadm control-plane joins.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  podSubnet: "10.244.0.0/16"
+nodes:
+  - role: control-plane
+  - role: control-plane
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker

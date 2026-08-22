@@ -3,7 +3,7 @@
 ## 모범 답안
 
 ```bash
-# 1. control plane 노드에서 스냅샷 생성 (인증서 4종 플래그가 핵심)
+# 1. 노드에 접속해 스냅샷 생성 (인증서 4종 플래그가 핵심)
 ssh cka-control-plane
 etcdctl \
   --endpoints=https://127.0.0.1:2379 \
@@ -13,34 +13,20 @@ etcdctl \
   snapshot save /var/lib/etcd/snapshot-cka.db
 exit
 
-# 2. 검증 출력 저장 — status.txt는 호스트의 ~/cka 에서 채점되므로
-#    ssh에 명령을 붙여 실행하고 리다이렉션은 호스트에서 받는다
+# 2. 검증 출력을 작업 머신의 파일로 저장 (원격 실행 결과를 그대로 리다이렉트)
 mkdir -p ~/cka/ca-03
-ssh cka-control-plane \
-  'etcdutl snapshot status /var/lib/etcd/snapshot-cka.db -w table' \
+ssh cka-control-plane "etcdutl snapshot status /var/lib/etcd/snapshot-cka.db -w table" \
   > ~/cka/ca-03/status.txt
-```
-
-## 대체 방식 (etcd Pod exec)
-
-노드의 etcdctl이 유실됐다면 (`cka cluster doctor`로 복구 가능) etcd Pod 안에서
-같은 명령을 실행해도 된다.
-
-```bash
-kubectl -n kube-system exec etcd-cka-control-plane -- etcdctl \
-  --endpoints=https://127.0.0.1:2379 \
-  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-  --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key \
-  snapshot save /var/lib/etcd/snapshot-cka.db
 ```
 
 ## 해설 (한국어)
 
-- **실제 시험**에서는 control plane 노드에 `ssh <node>`로 접속해 노드에 설치된
-  etcdctl을 직접 실행한다. 이 연습 환경도 `cka cluster up`이 노드에
-  etcdctl·etcdutl을 심어 두므로 **실전과 똑같은 손버릇**으로 풀 수 있다 —
-  Pod exec으로 우회하더라도 **명령과 플래그는 완전히 동일**하다.
+- **작업 위치가 중요하다.** etcd 백업은 control plane 노드에 `ssh` 로 들어가
+  노드의 `etcdctl` 로 수행한다 — 실제 시험과 동일하다. 이 연습 환경도 노드에
+  `etcdctl`·`etcdutl` 이 설치돼 있다(`cka cluster up`/`doctor` 가 etcd 이미지에서
+  꺼내 `/usr/local/bin` 에 넣어 둔다).
+- 스냅샷은 **노드의 파일**로 남고, 제출 파일은 **작업 머신**에 만든다.
+  `ssh <node> "<명령>" > 파일` 로 원격 출력만 받아오면 두 곳을 오갈 필요가 없다.
 - 인증서 경로는 외우기보다 **찾는 법**을 익힌다:
   `cat /etc/kubernetes/manifests/etcd.yaml | grep -E "cert|key|listen-client"` —
   etcd static pod 매니페스트에 모든 플래그가 적혀 있다.

@@ -14,6 +14,7 @@ metadata:
   name: api-gateway
   namespace: logging
 spec:
+  restartPolicy: Always
   containers:
     - name: gateway
       image: busybox:1.36
@@ -21,17 +22,50 @@ spec:
         - sh
         - -c
         - |
-          i=1
-          while [ $i -le 30 ]; do
-            if [ $((i % 5)) -eq 0 ]; then
-              echo "2026-07-16 10:0$((i % 10)):00 ERROR upstream timeout code=E$i"
-            else
-              echo "2026-07-16 10:0$((i % 10)):00 INFO request handled id=$i"
-            fi
-            i=$((i+1))
-          done
+          echo "2026-08-22T10:00:00Z INFO gateway started"
+          echo "2026-08-22T10:00:01Z ERROR upstream timeout code=E10"
+          echo "2026-08-22T10:00:02Z WARN retrying request"
+          echo "2026-08-22T10:00:03Z ERROR backend unavailable code=E20"
+          echo "2026-08-22T10:00:04Z INFO request recovered"
+          echo "2026-08-22T10:00:05Z ERROR circuit open code=E30"
           sleep infinity
+    - name: worker
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          if [ ! -f /state/restarted ]; then
+            echo "2026-08-22T10:01:00Z INFO worker booting"
+            echo "2026-08-22T10:01:01Z ERROR worker crashed code=W1"
+            touch /state/restarted
+            exit 1
+          fi
+          echo "2026-08-22T10:01:10Z INFO worker recovered"
+          sleep infinity
+      volumeMounts:
+        - name: worker-state
+          mountPath: /state
+    - name: metrics
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "2026-08-22T10:02:00Z ERROR this line belongs to metrics"
+          sleep infinity
+  volumes:
+    - name: worker-state
+      emptyDir: {}
 EOF
 
+for _ in $(seq 1 60); do
+  restart_count="$(kctx -n logging get pod api-gateway \
+    -o jsonpath='{.status.containerStatuses[?(@.name=="worker")].restartCount}' \
+    2>/dev/null || true)"
+  [ "${restart_count:-0}" -ge 1 ] 2>/dev/null && break
+  sleep 1
+done
+[ "${restart_count:-0}" -ge 1 ] 2>/dev/null \
+  || die "worker container가 예상대로 재시작하지 않았습니다."
 wait_pod logging api-gateway
-sleep 3   # 로그가 다 쌓일 때까지

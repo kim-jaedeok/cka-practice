@@ -1,0 +1,5 @@
+id: sn-09
+title: Expose an application with a working LoadBalancer Service
+domain: services-networking
+points: 8
+minutes: 10
