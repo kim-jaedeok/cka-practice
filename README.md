@@ -225,8 +225,17 @@ tests/selftest.sh --domain storage  # 공유 문제의 도메인 단위 검증
 tests/selftest.sh --include-disposable # 52문제 전체(고비용 셀·asset 필요)
 tests/selftest.sh --contract-only   # 클러스터 없이 계약 검증만 실행
 ./cka cluster reset                 # 클러스터 완전 재생성
-./cka cluster down                  # 클러스터 삭제
+./cka cluster down                  # 관리 중인 일회용 셀 정리 + 공유 클러스터 삭제
 ```
+
+`cluster down`은 먼저 이 프로젝트가 journal로 소유권을 검증할 수 있는 일회용 문제 셀을
+모두 정리한 뒤 공유 `kind-cka` 클러스터를 삭제한다. 셀 하나라도 안전하게 검증·정리하지
+못하면 공유 클러스터 삭제도 중단한다. 설정된 공유 클러스터 이름(`CKA_CLUSTER_NAME`, 기본값
+`cka`)과 이름이 다른 KIND 클러스터는 삭제하지 않으며, 그런 클러스터가 남아 있으면
+host-global Cloud Provider KIND도 유지한다.
+문제 진행 상태, 답안 작업 디렉터리와 시험 결과·감사 기록은 삭제하지 않는다.
+공유 클러스터의 기존 소유 경계는 이름이므로, 별도로 만든 클러스터에 같은
+`CKA_CLUSTER_NAME`을 사용하지 않아야 한다.
 
 현재 cluster-free 정적·계약 검사와 네 필수 Docker live suite가 모두 통과했다.
 검증 범위는 `ca-12` blank-node kubeadm bootstrap, `ca-11` 3-control-plane

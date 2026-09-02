@@ -45,6 +45,8 @@ _question_runtime_load_cell_library() {
     && declare -F cell_select >/dev/null \
     && declare -F cell_selection_clear >/dev/null \
     && declare -F cell_selection_clear_current >/dev/null \
+    && declare -F _cell_cleanup_all_managed_locked >/dev/null \
+    && declare -F cell_cleanup_all_managed >/dev/null \
     && return 0
   # shellcheck source=cell.sh
   source "$CKA_ROOT/lib/cell.sh"
@@ -54,7 +56,9 @@ _question_runtime_load_cell_library() {
     && declare -F cell_status >/dev/null \
     && declare -F cell_select >/dev/null \
     && declare -F cell_selection_clear >/dev/null \
-    && declare -F cell_selection_clear_current >/dev/null
+    && declare -F cell_selection_clear_current >/dev/null \
+    && declare -F _cell_cleanup_all_managed_locked >/dev/null \
+    && declare -F cell_cleanup_all_managed >/dev/null
 }
 
 _question_runtime_load_controller_library() {

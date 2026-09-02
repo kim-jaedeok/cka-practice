@@ -8,6 +8,17 @@ CKA_STATE_DIR="${CKA_STATE_DIR:-$CKA_ROOT/.state}"
 CKA_WORK_DIR="${CKA_WORK_DIR:-$HOME/cka}"   # 파일 제출형 답안이 저장되는 위치
 CKA_LABEL_KEY="cka-practice/question"
 CKA_VERSIONS_LOCK="$CKA_ROOT/cluster/versions.lock.yaml"
+_CKA_INFRA_ACCOUNT_HOME=""
+if command -v getent >/dev/null 2>&1; then
+  _CKA_INFRA_ACCOUNT_HOME="$(getent passwd "$(id -u)" 2>/dev/null \
+    | awk -F: 'NR == 1 { print $6 }' || true)"
+fi
+CKA_INFRA_LOCK_CANONICAL_ROOT="${_CKA_INFRA_ACCOUNT_HOME:+${_CKA_INFRA_ACCOUNT_HOME%/}/.local/state/cka-practice}"
+CKA_INFRA_LOCK_ROOT="${CKA_INFRA_LOCK_ROOT:-$CKA_INFRA_LOCK_CANONICAL_ROOT}"
+CKA_INFRA_LOCK_FILE="${CKA_INFRA_LOCK_ROOT%/}/infrastructure.lock"
+CKA_INFRA_LOCK_WAIT_SECONDS="${CKA_INFRA_LOCK_WAIT_SECONDS:-15}"
+CKA_INFRA_LOCK_WAIT_MAX_SECONDS=120
+CKA_INFRA_LOCK_TIMEOUT_RC=75
 
 # helm 등 사용자 로컬 바이너리 경로 보장 (비로그인 셸 대비)
 case ":$PATH:" in
@@ -34,6 +45,112 @@ ok()   { printf '%s\n' "${C_GRN}[ ok ]${C_RST} $*"; }
 warn() { printf '%s\n' "${C_YLW}[warn]${C_RST} $*"; }
 err()  { printf '%s\n' "${C_RED}[fail]${C_RST} $*" >&2; }
 die()  { err "$*"; exit 1; }
+
+# Prepare the host-global lock used by the public CLI to serialize operations
+# that create, mutate, or remove shared KIND infrastructure and disposable
+# cells. A small guardian owns the descriptor, forwards termination signals to
+# the mutation process group, and never passes the descriptor to descendants.
+_infrastructure_lock_prepare() (
+  local root resolved owner mode fs lock_path links
+  root="${CKA_INFRA_LOCK_ROOT%/}"
+  [ -n "$CKA_INFRA_LOCK_CANONICAL_ROOT" ] || {
+    err "현재 UID의 canonical home을 확인하지 못해 infrastructure lock을 만들 수 없습니다."
+    return 1
+  }
+  if [ "$root" != "$CKA_INFRA_LOCK_CANONICAL_ROOT" ]; then
+    [ "${CKA_INFRA_LOCK_TEST_OVERRIDE:-0}" = 1 ] || {
+      err "infrastructure lock root는 UID별 canonical 경로로 고정됩니다: $CKA_INFRA_LOCK_CANONICAL_ROOT"
+      return 1
+    }
+    case "$root" in
+      /tmp/*|/var/tmp/*) ;;
+      *) err "test infrastructure lock root는 임시 디렉터리 아래여야 합니다: $root"; return 1 ;;
+    esac
+  fi
+  [[ "$root" = /* ]] && [ -n "$root" ] && [ "$root" != / ] || {
+    err "infrastructure lock root는 안전한 절대 경로여야 합니다: $CKA_INFRA_LOCK_ROOT"
+    return 1
+  }
+  umask 077
+  mkdir -p -m 0700 -- "$root" || return 1
+  [ -d "$root" ] && [ ! -L "$root" ] || return 1
+  resolved="$(realpath -e -- "$root" 2>/dev/null)" || return 1
+  [ "$resolved" = "$root" ] || {
+    err "infrastructure lock root에는 symlink 경로를 사용할 수 없습니다: $root"
+    return 1
+  }
+  owner="$(stat -c %u -- "$root" 2>/dev/null)" || return 1
+  [ "$owner" = "$(id -u)" ] || {
+    err "infrastructure lock root 소유자가 현재 사용자와 다릅니다: $root"
+    return 1
+  }
+  chmod 0700 -- "$root" || return 1
+  mode="$(stat -c %a -- "$root" 2>/dev/null)" || return 1
+  [ "$mode" = 700 ] || return 1
+  if [ "${CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE:-0}" != 1 ]; then
+    fs="$(stat -f -c %T -- "$root" 2>/dev/null)" || return 1
+    case "${fs,,}" in
+      9p|drvfs|cifs|nfs|nfs4|fuseblk|vfat|exfat|ntfs)
+        err "infrastructure lock은 native Linux filesystem에 두어야 합니다: $root ($fs)"
+        return 1
+        ;;
+    esac
+  fi
+
+  lock_path="$root/infrastructure.lock"
+  if [ -e "$lock_path" ] || [ -L "$lock_path" ]; then
+    [ -f "$lock_path" ] && [ ! -L "$lock_path" ] || {
+      err "infrastructure lock이 안전한 일반 파일이 아닙니다: $lock_path"
+      return 1
+    }
+    owner="$(stat -c %u -- "$lock_path" 2>/dev/null)" || return 1
+    links="$(stat -c %h -- "$lock_path" 2>/dev/null)" || return 1
+    mode="$(stat -c %a -- "$lock_path" 2>/dev/null)" || return 1
+    [ "$owner" = "$(id -u)" ] && [ "$links" = 1 ] && [ "$mode" = 600 ] || {
+      err "infrastructure lock의 소유자·link count·mode가 안전하지 않습니다: $lock_path"
+      return 1
+    }
+  fi
+  # The Python guardian creates/opens the leaf with O_NOFOLLOW and validates
+  # the acquired descriptor. Do not mutate an existing path before that
+  # descriptor-level check.
+)
+
+infrastructure_lock_run() { # <wait|nowait> <command> [args...]
+  local mode="${1:-}"
+  shift || return 2
+  [ "$#" -gt 0 ] || return 2
+  CKA_INFRA_LOCK_FILE="${CKA_INFRA_LOCK_ROOT%/}/infrastructure.lock"
+  _infrastructure_lock_prepare || return 1
+  case "$mode" in wait|nowait) ;; *) return 2 ;; esac
+  [[ "$CKA_INFRA_LOCK_WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] \
+    && [ "$CKA_INFRA_LOCK_WAIT_SECONDS" -le "$CKA_INFRA_LOCK_WAIT_MAX_SECONDS" ] || {
+      err "infrastructure lock wait는 1-${CKA_INFRA_LOCK_WAIT_MAX_SECONDS}s여야 합니다."
+      return 2
+    }
+  command -v python3 >/dev/null || { err "python3가 필요합니다."; return 1; }
+  python3 "$CKA_ROOT/lib/infrastructure-guard.py" \
+    "$mode" "$CKA_INFRA_LOCK_WAIT_SECONDS" "$CKA_INFRA_LOCK_TIMEOUT_RC" \
+    "$CKA_INFRA_LOCK_FILE" -- "$@"
+}
+
+infrastructure_lock_exec() { # <wait|nowait> <command> [args...]
+  local mode="${1:-}"
+  shift || return 2
+  [ "$#" -gt 0 ] || return 2
+  CKA_INFRA_LOCK_FILE="${CKA_INFRA_LOCK_ROOT%/}/infrastructure.lock"
+  _infrastructure_lock_prepare || return 1
+  case "$mode" in wait|nowait) ;; *) return 2 ;; esac
+  [[ "$CKA_INFRA_LOCK_WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] \
+    && [ "$CKA_INFRA_LOCK_WAIT_SECONDS" -le "$CKA_INFRA_LOCK_WAIT_MAX_SECONDS" ] || {
+      err "infrastructure lock wait는 1-${CKA_INFRA_LOCK_WAIT_MAX_SECONDS}s여야 합니다."
+      return 2
+    }
+  command -v python3 >/dev/null || { err "python3가 필요합니다."; return 1; }
+  exec python3 "$CKA_ROOT/lib/infrastructure-guard.py" \
+    "$mode" "$CKA_INFRA_LOCK_WAIT_SECONDS" "$CKA_INFRA_LOCK_TIMEOUT_RC" \
+    "$CKA_INFRA_LOCK_FILE" -- "$@"
+}
 
 # ── 재현 가능한 클러스터 버전 lock ──────────────────────────────
 # bootstrap 자체가 yq에 의존하지 않도록 versions.lock.yaml은 의도적으로
@@ -778,6 +895,29 @@ exam_actions_locked() {
     NONE|ARCHIVED|INVALID) return 1 ;;
     *) return 0 ;;
   esac
+}
+
+# The supervised SSH runner has a separate native-Linux state root. Presence
+# of its create-once active record blocks practice mutations. An existing but
+# unsafe root also locks fail-closed; the runner performs full run-integrity
+# validation when `cka exam-ssh cleanup` is invoked.
+supervised_exam_actions_locked() {
+  local state_home root active resolved owner mode
+  state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+  root="${CKA_SSH_RUNNER_STATE_ROOT:-$state_home/cka-practice/exam-ssh}"
+  root="${root%/}"
+  [[ "$root" = /* ]] && [ -n "$root" ] && [ "$root" != / ] || return 0
+  active="$root/active"
+  if [ ! -e "$root" ] && [ ! -L "$root" ]; then
+    return 1
+  fi
+  [ -d "$root" ] && [ ! -L "$root" ] || return 0
+  resolved="$(realpath -e -- "$root" 2>/dev/null)" || return 0
+  [ "$resolved" = "$root" ] || return 0
+  owner="$(stat -c %u -- "$root" 2>/dev/null)" || return 0
+  mode="$(stat -c %a -- "$root" 2>/dev/null)" || return 0
+  [ "$owner" = "$(id -u)" ] && [ "$mode" = 700 ] || return 0
+  [ -e "$active" ] || [ -L "$active" ]
 }
 
 # Remove one direct child of the CKA state directory.  Destructive callers

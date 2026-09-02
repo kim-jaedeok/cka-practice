@@ -69,6 +69,19 @@ contract_unknown_cluster_inventory_blocks_process_signals() (
     && [ "$signalled" -eq 0 ]
 )
 
+contract_lb_cleanup_rejects_context_mismatch_before_access() (
+  local touched=0
+  CKA_CLUSTER_NAME=cka
+  CKA_CONTEXT=kind-foreign
+  warn() { :; }
+  cluster_ready() { touched=1; return 0; }
+  kctx() { touched=1; return 0; }
+  docker() { touched=1; return 0; }
+
+  ! cloud_provider_kind_cleanup_cluster_loadbalancers cka \
+    && [ "$touched" -eq 0 ]
+)
+
 contract_stale_boot_record_is_reclaimed_without_signal() (
   set -euo pipefail
   local temp old_boot current_boot signalled=0
@@ -630,6 +643,8 @@ check 'other KIND clusters block launching a replacement provider' \
   contract_other_clusters_block_restart_launch
 check 'unknown KIND inventory fails closed before provider signals' \
   contract_unknown_cluster_inventory_blocks_process_signals
+check 'LoadBalancer cleanup rejects a mismatched cluster context before access' \
+  contract_lb_cleanup_rejects_context_mismatch_before_access
 check 'a valid previous-boot record is reclaimed without signalling its PID' \
   contract_stale_boot_record_is_reclaimed_without_signal
 check 'kindccm readiness uses full immutable IDs and rejects stopped or paused containers' \

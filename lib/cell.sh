@@ -69,14 +69,31 @@ cell_selection_path() {
   printf '%s/active-cell\n' "$CKA_STATE_DIR"
 }
 
+_cell_selection_root_preflight() {
+  local root resolved
+  root="${CKA_STATE_DIR%/}"
+  [[ "$root" = /* ]] && [ -n "$root" ] && [ "$root" != / ] || return 1
+  # realpath -m also resolves existing parent symlinks when the leaf does not
+  # exist yet. This rejects accidental use of a linked state-directory path;
+  # the lifecycle lock remains the serialization contract for cooperating
+  # writers.
+  resolved="$(realpath -m -- "$root" 2>/dev/null)" || return 1
+  [ "$resolved" = "$root" ] || return 1
+  if [ -e "$root" ] || [ -L "$root" ]; then
+    [ -d "$root" ] && [ ! -L "$root" ] || return 1
+  fi
+}
+
 # Persist only the selected question id in the repository state. All trusted
 # object identity remains in the native-Linux cell manifest and is rechecked
 # before a shell or command is allowed to reach a container.
-cell_select() { # <qid> <environment>
+_cell_select_locked() { # <qid> <environment>; caller holds lifecycle lock
   local qid="$1" environment="$2" target tmp
+  _cell_lock_is_owned || return 1
   cell_status "$qid" "$environment" >/dev/null || return 1
+  _cell_selection_root_preflight || return 1
   [ -d "$CKA_STATE_DIR" ] || mkdir -p -- "$CKA_STATE_DIR" || return 1
-  [ -d "$CKA_STATE_DIR" ] && [ ! -L "$CKA_STATE_DIR" ] || return 1
+  _cell_selection_root_preflight || return 1
   target="$(cell_selection_path)"
   if [ -e "$target" ] || [ -L "$target" ]; then
     [ -f "$target" ] && [ ! -L "$target" ] || return 1
@@ -89,8 +106,15 @@ cell_select() { # <qid> <environment>
   fi
 }
 
+cell_select() ( # <qid> <environment>
+  set -uo pipefail
+  _cell_lock || return $?
+  _cell_select_locked "$@"
+)
+
 cell_selected_qid() {
   local target qid extra
+  _cell_selection_root_preflight || return 1
   target="$(cell_selection_path)"
   [ -f "$target" ] && [ ! -L "$target" ] || return 1
   IFS= read -r qid < "$target" || return 1
@@ -101,9 +125,11 @@ cell_selected_qid() {
   printf '%s\n' "$qid"
 }
 
-cell_selection_clear() { # <qid>
+_cell_selection_clear_locked() { # <qid>; caller holds lifecycle lock
   local qid="$1" target selected extra
+  _cell_lock_is_owned || return 1
   cell_qid_valid "$qid" || return 1
+  _cell_selection_root_preflight || return 1
   target="$(cell_selection_path)"
   [ -e "$target" ] || [ -L "$target" ] || return 0
   [ -f "$target" ] && [ ! -L "$target" ] || return 1
@@ -114,8 +140,16 @@ cell_selection_clear() { # <qid>
   rm -f -- "$target"
 }
 
-cell_selection_clear_current() {
+cell_selection_clear() ( # <qid>
+  set -uo pipefail
+  _cell_lock || return $?
+  _cell_selection_clear_locked "$@"
+)
+
+_cell_selection_clear_current_locked() { # caller holds lifecycle lock
   local target selected extra
+  _cell_lock_is_owned || return 1
+  _cell_selection_root_preflight || return 1
   target="$(cell_selection_path)"
   [ -e "$target" ] || [ -L "$target" ] || return 0
   [ -f "$target" ] && [ ! -L "$target" ] || return 1
@@ -124,6 +158,12 @@ cell_selection_clear_current() {
   [ -z "$extra" ] && cell_qid_valid "$selected" || return 1
   rm -f -- "$target"
 }
+
+cell_selection_clear_current() (
+  set -uo pipefail
+  _cell_lock || return $?
+  _cell_selection_clear_current_locked
+)
 
 cell_active_identity_matches() { # <qid> <environment>
   local qid="$1" environment="$2" selected kubeconfig
@@ -209,11 +249,25 @@ cell_runtime_readonly_ok() {
     && _cell_native_fs_ok "$CKA_CELL_RUNTIME_DIR"
 }
 
+_cell_lock_fd_safe() { # <fd> <expected-path>
+  local fd="$1" lock_path="$2" owner links mode
+  [[ "$fd" =~ ^[0-9]+$ ]] \
+    && [ -f "$lock_path" ] && [ ! -L "$lock_path" ] \
+    && [ -f "/proc/self/fd/$fd" ] \
+    && [ "/proc/self/fd/$fd" -ef "$lock_path" ] || return 1
+  owner="$(stat -L -c %u -- "/proc/self/fd/$fd" 2>/dev/null)" || return 1
+  links="$(stat -L -c %h -- "/proc/self/fd/$fd" 2>/dev/null)" || return 1
+  mode="$(stat -L -c %a -- "/proc/self/fd/$fd" 2>/dev/null)" || return 1
+  [ "$owner" = "$(id -u)" ] && [ "$links" = 1 ] && [ "$mode" = 600 ]
+}
+
 _cell_lock() {
   local lock_path rc reuse_fd=0
   cell_runtime_init || return 1
   lock_path="$CKA_CELL_RUNTIME_DIR/lifecycle.lock"
-  [ ! -L "$lock_path" ] || return 1
+  if [ -e "$lock_path" ] || [ -L "$lock_path" ]; then
+    [ -f "$lock_path" ] && [ ! -L "$lock_path" ] || return 1
+  fi
 
   [[ "$CKA_CELL_LOCK_WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] \
     && [ "$CKA_CELL_LOCK_WAIT_SECONDS" -le "$CKA_CELL_LOCK_WAIT_MAX_SECONDS" ] || {
@@ -227,7 +281,7 @@ _cell_lock() {
   # closed before attempting a separately bounded acquisition.
   if [[ "${CELL_LOCK_FD:-}" =~ ^[0-9]+$ ]] \
       && [ -e "/proc/self/fd/$CELL_LOCK_FD" ]; then
-    if [ "/proc/self/fd/$CELL_LOCK_FD" -ef "$lock_path" ]; then
+    if _cell_lock_fd_safe "$CELL_LOCK_FD" "$lock_path"; then
       if [ "${CELL_LOCK_OWNER_BASHPID:-}" = "$BASHPID" ]; then
         reuse_fd=1
       else
@@ -241,19 +295,22 @@ _cell_lock() {
     # Never close an unrelated descriptor supplied through environment state.
     # Merely discard the untrusted marker and allocate our own descriptor.
     unset CELL_LOCK_FD CELL_LOCK_OWNER_BASHPID
-    exec {CELL_LOCK_FD}> "$lock_path" || return 1
+    exec {CELL_LOCK_FD}<> "$lock_path" || return 1
   fi
 
-  chmod 0600 "$lock_path" || {
-    rc=$?
+  _cell_lock_fd_safe "$CELL_LOCK_FD" "$lock_path" || {
     exec {CELL_LOCK_FD}>&-
     unset CELL_LOCK_FD CELL_LOCK_OWNER_BASHPID
-    return "$rc"
+    return 1
   }
   if flock --exclusive --wait "$CKA_CELL_LOCK_WAIT_SECONDS" \
       --conflict-exit-code "$CKA_CELL_LOCK_TIMEOUT_RC" "$CELL_LOCK_FD"; then
     CELL_LOCK_OWNER_BASHPID="$BASHPID"
-    return 0
+    if _cell_lock_fd_safe "$CELL_LOCK_FD" "$lock_path"; then
+      return 0
+    fi
+    flock --unlock "$CELL_LOCK_FD" >/dev/null 2>&1 || true
+    rc=1
   else
     # Capture inside the `else`: an `if` compound with no selected branch may
     # itself report success and would otherwise erase flock's conflict code.
@@ -267,6 +324,14 @@ _cell_lock() {
     err "cell lifecycle lock acquisition failed (exit $rc)"
   fi
   return "$rc"
+}
+
+_cell_lock_is_owned() {
+  local lock_path="$CKA_CELL_RUNTIME_DIR/lifecycle.lock"
+  [[ "${CELL_LOCK_FD:-}" =~ ^[0-9]+$ ]] \
+    && [ "${CELL_LOCK_OWNER_BASHPID:-}" = "$BASHPID" ] \
+    && _cell_lock_fd_safe "$CELL_LOCK_FD" "$lock_path" \
+    && flock --exclusive --nonblock "$CELL_LOCK_FD"
 }
 
 _cell_df() { df "$@"; }
@@ -1011,36 +1076,113 @@ _cell_preflight_destroy() {
   }
 }
 
-cell_destroy() ( # <qid>
-  set -uo pipefail
-  local qid="$1" state_dir role id remaining unknown count index key name fingerprint actual_fp attached
-  cell_feature_enabled \
-    || { err "일회용 셀 삭제에는 CKA_ENABLE_DISPOSABLE_CELLS=1 이 필요합니다."; return 1; }
-  _cell_lock || return $?
+_cell_state_files_preflight() { # <qid>; caller holds lifecycle lock
+  local qid="$1" state_dir entry name rc=0 dotglob_set=0 nullglob_set=0
+  local -a entries=()
+  _cell_lock_is_owned || return 1
   state_dir="$(cell_state_dir "$qid")" || return 1
-  [ -e "$state_dir" ] || return 0
   [ -d "$state_dir" ] && [ ! -L "$state_dir" ] || return 1
+  shopt -q dotglob && dotglob_set=1
+  shopt -q nullglob && nullglob_set=1
+  shopt -s dotglob nullglob
+  entries=("$state_dir"/*)
+  for entry in "${entries[@]}"; do
+    name="${entry##*/}"
+    case "$name" in
+      manifest|kubeconfig|evidence)
+        [ -f "$entry" ] && [ ! -L "$entry" ] || {
+          err "안전한 일반 파일이 아닌 cell 상태 항목이 있습니다: $entry"
+          rc=1
+          break
+        }
+        ;;
+      *)
+        err "알 수 없는 cell 상태 파일을 보존하고 삭제를 중단합니다: $entry"
+        rc=1
+        break
+        ;;
+    esac
+  done
+  [ "$dotglob_set" -eq 1 ] || shopt -u dotglob
+  [ "$nullglob_set" -eq 1 ] || shopt -u nullglob
+  return "$rc"
+}
+
+_cell_prepare_destroy_locked() { # <qid> [require-present]; caller holds the lifecycle lock
+  local qid="$1" require_present="${2:-0}" state_dir
+  _cell_lock_is_owned || return 1
+  state_dir="$(cell_state_dir "$qid")" || return 1
+  if [ ! -e "$state_dir" ] && [ ! -L "$state_dir" ]; then
+    [ "$require_present" = 0 ]
+    return $?
+  fi
+  [ -d "$state_dir" ] && [ ! -L "$state_dir" ] || return 1
+  _cell_state_files_preflight "$qid" || return 1
   cell_manifest_load "$qid" || return 1
   if [ "$CELL_STATUS" = PREPARING ]; then
     _cell_recover_preparing_manifest "$qid" || {
       err "PREPARING cell journal을 안전하게 복구할 수 없어 삭제를 거부합니다."
       return 1
     }
+    _cell_state_files_preflight "$qid" || return 1
     cell_manifest_load "$qid" || return 1
-    if [ "$CELL_NETWORK_ID" = PENDING ]; then
-      # The intent was persisted before network allocation. Recovery proved
-      # that neither the exact network nor any same-cluster container exists,
-      # so only the local journal may be removed.
-      rm -f -- "$state_dir/kubeconfig" "$state_dir/evidence" "$state_dir/manifest"
-      unknown="$(find "$state_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)"
-      [ -z "$unknown" ] \
-        || { err "알 수 없는 cell 상태 파일을 보존하고 삭제를 중단합니다: $unknown"; return 1; }
-      rmdir -- "$state_dir" || return 1
-      ok "$qid unallocated disposable cell journal 삭제 완료"
-      return 0
-    fi
   fi
+  [ "$CELL_NETWORK_ID" = PENDING ] && return 0
   _cell_preflight_destroy "$qid" || return 1
+}
+
+_cell_remove_local_state_locked() { # <qid>; caller holds lifecycle lock and loaded manifest
+  local qid="$1" state_dir unknown rc
+  _cell_lock_is_owned || return 1
+  state_dir="$(cell_state_dir "$qid")" || return 1
+  [ -d "$state_dir" ] && [ ! -L "$state_dir" ] || return 1
+  _cell_state_files_preflight "$qid" || return 1
+  rm -f -- "$state_dir/kubeconfig" "$state_dir/evidence" || return 1
+  rm -f -- "$state_dir/manifest" || return 1
+  unknown="$(find "$state_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" || {
+    _cell_manifest_write "$qid" >/dev/null 2>&1 || true
+    return 1
+  }
+  if [ -n "$unknown" ]; then
+    _cell_manifest_write "$qid" >/dev/null 2>&1 \
+      || err "cell ownership manifest 복원에도 실패했습니다: $qid"
+    err "알 수 없는 cell 상태 파일을 보존하고 삭제를 중단합니다: $unknown"
+    return 1
+  fi
+  if rmdir -- "$state_dir"; then
+    return 0
+  else
+    rc=$?
+  fi
+  # A transient rmdir failure must not strand an empty qid directory without
+  # the immutable ownership evidence needed by a later exact cleanup retry.
+  if [ -d "$state_dir" ] && [ ! -L "$state_dir" ]; then
+    _cell_manifest_write "$qid" >/dev/null 2>&1 \
+      || err "cell ownership manifest 복원에도 실패했습니다: $qid"
+  fi
+  return "$rc"
+}
+
+_cell_destroy_locked() { # <qid> [require-present]; caller holds the lifecycle lock
+  local qid="$1" require_present="${2:-0}" state_dir role id remaining count index key name fingerprint actual_fp attached
+  local removed_network_id
+  _cell_lock_is_owned || return 1
+  state_dir="$(cell_state_dir "$qid")" || return 1
+  if [ ! -e "$state_dir" ] && [ ! -L "$state_dir" ]; then
+    [ "$require_present" = 0 ]
+    return $?
+  fi
+  _cell_prepare_destroy_locked "$qid" "$require_present" || return 1
+  [ "$require_present" = 0 ] || { [ -d "$state_dir" ] && [ ! -L "$state_dir" ]; } \
+    || return 1
+  if [ "$CELL_NETWORK_ID" = PENDING ]; then
+    # The intent was persisted before network allocation. Recovery proved that
+    # neither the exact network nor any same-cluster container exists, so only
+    # the local journal may be removed.
+    _cell_remove_local_state_locked "$qid" || return 1
+    ok "$qid unallocated disposable cell journal 삭제 완료"
+    return 0
+  fi
   CELL_STATUS=DELETING
   _cell_manifest_write "$qid" || return 1
 
@@ -1085,13 +1227,244 @@ cell_destroy() ( # <qid>
   cell_verify_network_id "$qid" || return 1
   [ "$(_cell_docker network inspect --format '{{len .Containers}}' "$CELL_NETWORK_ID")" = 0 ] \
     || { err "cell network에 연결된 endpoint가 남았습니다."; return 1; }
-  _cell_docker network rm "$CELL_NETWORK_ID" >/dev/null || return 1
-
-  rm -f -- "$state_dir/kubeconfig" "$state_dir/evidence" "$state_dir/manifest"
-  unknown="$(find "$state_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)"
-  [ -z "$unknown" ] || { err "알 수 없는 cell 상태 파일을 보존하고 삭제를 중단합니다: $unknown"; return 1; }
-  rmdir -- "$state_dir"
+  removed_network_id="$CELL_NETWORK_ID"
+  # Publish a recoverable no-container/no-volume intent before the final
+  # network removal. If the process stops afterwards, PREPARING recovery can
+  # prove whether this exact run-labelled network still exists and retry.
+  CELL_STATUS=PREPARING
+  CELL_NETWORK_ID=PENDING
+  declare -gA CELL_CONTAINER_IDS=()
+  _cell_volume_arrays_init
+  while IFS= read -r role; do
+    CELL_VOLUME_COUNTS[$role]=0
+  done < <(cell_expected_roles "$CELL_PROFILE")
+  _cell_manifest_write "$qid" || return 1
+  _cell_docker network rm "$removed_network_id" >/dev/null || return 1
+  _cell_remove_local_state_locked "$qid" || return 1
   ok "$qid disposable cell 삭제 완료"
+}
+
+cell_destroy() ( # <qid>
+  set -uo pipefail
+  local qid="$1"
+  cell_feature_enabled \
+    || { err "일회용 셀 삭제에는 CKA_ENABLE_DISPOSABLE_CELLS=1 이 필요합니다."; return 1; }
+  _cell_lock || return $?
+  _cell_destroy_locked "$qid"
+)
+
+_cell_selection_clear_preflight() {
+  local target qid extra
+  _cell_lock_is_owned || return 1
+  _cell_selection_root_preflight || return 1
+  target="$(cell_selection_path)"
+  [ -e "$target" ] || [ -L "$target" ] || return 0
+  [ -f "$target" ] && [ ! -L "$target" ] || return 1
+  IFS= read -r qid < "$target" || return 1
+  extra="$(sed -n '2,$p' "$target")" || return 1
+  [ -z "$extra" ] && cell_qid_valid "$qid"
+}
+
+_cell_managed_inventory_preflight_locked() { # <qid...>; detection only, never deletion authority
+  local qid role id current record actual cluster marker extra
+  local -A expected_networks=() expected_containers=() seen_networks=() seen_containers=()
+  _cell_lock_is_owned || return 1
+
+  for qid in "$@"; do
+    cell_manifest_load "$qid" || return 1
+    if [ "$CELL_NETWORK_ID" != PENDING ]; then
+      expected_networks[$CELL_NETWORK_ID]=1
+    fi
+    while IFS= read -r role; do
+      id="${CELL_CONTAINER_IDS[$role]:-}"
+      [ -z "$id" ] || expected_containers[$id]=1
+    done < <(cell_expected_roles "$CELL_PROFILE")
+  done
+
+  current="$(_cell_docker network ls --quiet --no-trunc \
+    --filter "label=$CKA_CELL_OWNER_LABEL" 2>/dev/null)" || return 1
+  if [ -n "$current" ]; then
+    while IFS= read -r id; do
+      cell_docker_id_valid "$id" && [ -z "${seen_networks[$id]+present}" ] || return 1
+      seen_networks[$id]=1
+      [ -n "${expected_networks[$id]+present}" ] || {
+        err "journal에 없는 cka-practice cell network를 감지해 전체 정리를 중단합니다: $id"
+        return 1
+      }
+    done <<< "$current"
+  fi
+  for id in "${!expected_networks[@]}"; do
+    [ -n "${seen_networks[$id]+present}" ] || return 1
+  done
+
+  current="$(_cell_docker ps --all --quiet --no-trunc \
+    --filter 'label=io.x-k8s.kind.cluster' 2>/dev/null)" || return 1
+  if [ -n "$current" ]; then
+    while IFS= read -r id; do
+      cell_docker_id_valid "$id" || return 1
+      record="$(_cell_docker container inspect --format \
+        '{{.Id}}|{{index .Config.Labels "io.x-k8s.kind.cluster"}}|END' \
+        "$id" 2>/dev/null)" || return 1
+      [ -n "$record" ] && [[ "$record" != *$'\n'* ]] || return 1
+      IFS='|' read -r actual cluster marker extra <<< "$record"
+      [ "$actual" = "$id" ] && [ "$marker" = END ] && [ -z "${extra:-}" ] || return 1
+      [[ "$cluster" =~ ^cka-cell-(st|wl|sn|ca|ts)-[0-9]{2}-[0-9a-f]{12}$ ]] || continue
+      [ -z "${seen_containers[$id]+present}" ] || return 1
+      seen_containers[$id]=1
+      [ -n "${expected_containers[$id]+present}" ] || {
+        err "journal에 없는 cka-practice cell container를 감지해 전체 정리를 중단합니다: $id"
+        return 1
+      }
+    done <<< "$current"
+  fi
+  # Missing sealed containers are valid after an interrupted cleanup. The
+  # destructive per-cell preflight separately verifies any surviving sealed
+  # container and its remaining volume generation. Inventory is only used to
+  # reject cka-cell containers that no journal authorizes.
+}
+
+# Delete only cells whose immutable journals live in the protected runtime
+# root.  Names, KIND inventory and Docker labels are never deletion authority.
+# All journals and Docker relationships are preflighted under one lifecycle
+# lock before the first exact-ID removal.
+_cell_cleanup_all_managed_locked() { # caller holds lifecycle lock
+  local runtime entry qid index identity unknown
+  local -a entries=() confirmed_entries=() qids=() journal_identities=() remaining=()
+  local -a tombstones=() tombstone_identities=()
+
+  _cell_lock_is_owned || return 1
+  CKA_ENABLE_DISPOSABLE_CELLS="${CKA_ENABLE_DISPOSABLE_CELLS:-1}"
+  cell_feature_enabled \
+    || { err "일회용 셀 전체 정리에는 CKA_ENABLE_DISPOSABLE_CELLS=1 이 필요합니다."; return 1; }
+  runtime="${CKA_CELL_RUNTIME_DIR%/}"
+  [ -n "$runtime" ] && [ "$runtime" != / ] || return 1
+  _cell_selection_clear_preflight || {
+    err "active-cell 선택 상태가 손상되어 전체 정리를 중단합니다."
+    return 1
+  }
+
+  shopt -s dotglob nullglob
+  entries=("$runtime"/*)
+  for entry in "${entries[@]}"; do
+    if [ "$entry" = "$runtime/lifecycle.lock" ]; then
+      [ -f "$entry" ] && [ ! -L "$entry" ] \
+        && [ "$(stat -c %u -- "$entry" 2>/dev/null)" = "$(id -u)" ] \
+        && [ "$(stat -c %h -- "$entry" 2>/dev/null)" = 1 ] \
+        && [ "$(stat -c %a -- "$entry" 2>/dev/null)" = 600 ] || {
+        err "일회용 셀 lifecycle lock이 안전한 일반 파일이 아닙니다."
+        return 1
+      }
+      continue
+    fi
+    qid="${entry##*/}"
+    [ -d "$entry" ] && [ ! -L "$entry" ] && cell_qid_valid "$qid" || {
+      err "알 수 없거나 안전하지 않은 일회용 셀 상태 항목이 있습니다: $entry"
+      return 1
+    }
+    identity="$(stat -c '%d:%i' -- "$entry" 2>/dev/null)" || return 1
+    if [ ! -e "$entry/manifest" ] && [ ! -L "$entry/manifest" ]; then
+      unknown="$(find "$entry" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" \
+        || return 1
+      [ -z "$unknown" ] || {
+        err "manifest가 없는 일회용 셀 상태를 보존하고 전체 정리를 중단합니다: $qid"
+        return 1
+      }
+      # A process can stop after unlinking the final manifest but before the
+      # qid directory rmdir. Treat only a completely empty, identity-pinned
+      # directory as local post-cleanup debris. Docker inventory below must
+      # still prove that no unjournaled cell object exists.
+      tombstones+=("$qid")
+      tombstone_identities+=("$identity")
+    else
+      cell_manifest_load "$qid" || {
+        err "일회용 셀 manifest를 사전 검증하지 못했습니다: $qid"
+        return 1
+      }
+      qids+=("$qid")
+      journal_identities+=("$identity")
+    fi
+  done
+
+  for qid in "${qids[@]}"; do
+    _cell_prepare_destroy_locked "$qid" 1 || {
+      err "일회용 셀 삭제 전 전체 사전 검증에 실패했습니다: $qid"
+      return 1
+    }
+  done
+  _cell_managed_inventory_preflight_locked "${qids[@]}" || {
+    err "Docker inventory와 cell journal이 일치하지 않아 전체 정리를 중단합니다."
+    return 1
+  }
+
+  # Cooperative creators share this lock. Reconfirm the direct-child snapshot
+  # anyway so an out-of-contract writer cannot be hidden by the batch cleanup.
+  confirmed_entries=("$runtime"/*)
+  [ "${#confirmed_entries[@]}" -eq "${#entries[@]}" ] || {
+    err "일회용 셀 inventory가 사전 검증 중 변경되었습니다."
+    return 1
+  }
+  for ((index=0; index < ${#entries[@]}; index++)); do
+    [ "${confirmed_entries[$index]}" = "${entries[$index]}" ] || {
+      err "일회용 셀 inventory가 사전 검증 중 변경되었습니다."
+      return 1
+    }
+  done
+
+  for ((index=0; index < ${#tombstones[@]}; index++)); do
+    qid="${tombstones[$index]}"
+    entry="$runtime/$qid"
+    [ -d "$entry" ] && [ ! -L "$entry" ] \
+      && [ "$(stat -c '%d:%i' -- "$entry" 2>/dev/null)" = "${tombstone_identities[$index]}" ] \
+      && [ -z "$(find "$entry" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ] || {
+        err "사전 검증한 빈 cell 상태 디렉터리가 삭제 전에 변경되었습니다: $qid"
+        return 1
+      }
+    rmdir -- "$entry" || return 1
+    _cell_selection_clear_locked "$qid" || {
+      err "정리한 빈 일회용 셀의 active-cell 선택 상태를 해제하지 못했습니다: $qid"
+      return 1
+    }
+  done
+
+  for ((index=0; index < ${#qids[@]}; index++)); do
+    qid="${qids[$index]}"
+    entry="$runtime/$qid"
+    [ -d "$entry" ] && [ ! -L "$entry" ] \
+      && [ "$(stat -c '%d:%i' -- "$entry" 2>/dev/null)" = "${journal_identities[$index]}" ] || {
+        err "사전 검증한 cell journal identity가 삭제 전에 변경되었습니다: $qid"
+        return 1
+      }
+    info "관리 중인 일회용 셀 정리 중: $qid"
+    _cell_destroy_locked "$qid" 1 || {
+      err "일회용 셀 정리에 실패해 공유 클러스터 삭제를 중단합니다: $qid"
+      return 1
+    }
+    _cell_selection_clear_locked "$qid" || {
+      err "삭제한 일회용 셀의 active-cell 선택 상태를 해제하지 못했습니다: $qid"
+      return 1
+    }
+  done
+
+  remaining=("$runtime"/*)
+  for entry in "${remaining[@]}"; do
+    [ "$entry" = "$runtime/lifecycle.lock" ] \
+      && [ -f "$entry" ] && [ ! -L "$entry" ] && continue
+    err "일회용 셀 상태가 정리 후에도 남았습니다: $entry"
+    return 1
+  done
+  _cell_selection_clear_current_locked || {
+    err "active-cell 선택 상태를 안전하게 해제하지 못했습니다."
+    return 1
+  }
+}
+
+cell_cleanup_all_managed() (
+  set -uo pipefail
+  CKA_ENABLE_DISPOSABLE_CELLS="${CKA_ENABLE_DISPOSABLE_CELLS:-1}"
+  cell_feature_enabled \
+    || { err "일회용 셀 전체 정리에는 CKA_ENABLE_DISPOSABLE_CELLS=1 이 필요합니다."; return 1; }
+  _cell_lock || return $?
+  _cell_cleanup_all_managed_locked
 )
 
 cell_exec() { # <qid> <role> <command...>

@@ -809,6 +809,10 @@ cloud_provider_kind_cleanup_cluster_loadbalancers() { # <kind-cluster-name>
     warn "현재 kube context와 다른 KIND cluster의 Service는 정리하지 않습니다: $cluster" >&2
     return 1
   }
+  [ "$CKA_CONTEXT" = "kind-$cluster" ] || {
+    warn "KIND cluster 이름과 kubectl context가 일치하지 않아 Service를 정리하지 않습니다: $cluster / $CKA_CONTEXT" >&2
+    return 1
+  }
 
   if cluster_ready; then
     service_output="$(kctx get services -A \
@@ -848,7 +852,7 @@ cloud_provider_kind_stop_if_no_clusters() {
   local clusters
   clusters="$(kind get clusters 2>/dev/null)" || return 1
   if [ -n "$clusters" ]; then
-    info "다른 KIND cluster가 있어 host-global Cloud Provider KIND는 계속 실행합니다."
+    info "요청한 클러스터 정리는 완료했습니다. 다른 KIND cluster가 남아 host-global Cloud Provider KIND만 계속 실행합니다."
     return 0
   fi
   cloud_provider_kind_stop

@@ -11,6 +11,15 @@ cell_cleanup  <question-id> <environment>
 cell_status   <question-id> <environment>
 ```
 
+`cka cluster down` destroys every journal-owned cell by its verified immutable
+Docker identifiers before deleting the persistent `kind-cka` cluster. It does
+not run per-question teardown or delete progress and answer files. It fails
+before the shared-cluster deletion if any journal entry is unknown, unsafe, or
+cannot be cleaned; KIND clusters whose names differ from `CKA_CLUSTER_NAME`
+remain out of scope. The persistent shared cluster retains the project's
+existing name-based identity contract, so an independently managed cluster
+must not reuse `CKA_CLUSTER_NAME`.
+
 | Environment | Questions | What it supplies |
 |---|---|---|
 | `kubeadm-upgrade` | `ca-06` | v1.35 control plane and a real v1.34 worker for an N-1→N package upgrade |

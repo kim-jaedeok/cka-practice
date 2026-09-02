@@ -53,7 +53,7 @@ cleanup_is_id_and_owner_bound() {
     && grep -Fq '_cell_docker volume rm "$name"' "$lib" \
     && grep -Fq '_cell_volume_fingerprint "$name"' "$lib" \
     && grep -Fq '_cell_volume_attachment_ids "$name"' "$lib" \
-    && grep -Fq 'network rm "$CELL_NETWORK_ID"' "$lib" \
+    && grep -Fq 'network rm "$removed_network_id"' "$lib" \
     && grep -Fq 'io.x-k8s.kind.cluster' "$lib" \
     && grep -Fq '$CKA_CELL_OWNER_LABEL=$CELL_RUN_ID' "$lib" \
     && grep -Fq 'manifest에 없는 동일-cluster 컨테이너' "$lib" \
@@ -348,6 +348,7 @@ _preparing_recovery_fake_case() ( # <success|extra|admin>
   # shellcheck source=../lib/cell.sh
   source "$CKA_ROOT/lib/cell.sh"
   _cell_lock() { :; }
+  _cell_lock_is_owned() { :; }
   _cell_docker() {
     local object="${1:-}" action="${2:-}" template="${4:-}" target="${!#}"
     local filter="${!#}" id name volume
@@ -489,6 +490,7 @@ pending_intent_without_objects_cleans_local_only() (
   # shellcheck source=../lib/cell.sh
   source "$CKA_ROOT/lib/cell.sh"
   _cell_lock() { :; }
+  _cell_lock_is_owned() { :; }
   _cell_docker() {
     printf '%s\n' "$*" >> "$case_root/docker.log"
     case "${1:-}:${2:-}" in
@@ -518,11 +520,113 @@ pending_intent_without_objects_cleans_local_only() (
     && ! grep -Eq -- '(container|volume|network) rm' "$case_root/docker.log"
 )
 
+unknown_cell_state_blocks_cleanup_before_docker_mutation() (
+  set -euo pipefail
+  local case_root state_dir
+  case_root="$(mktemp -d "${TMPDIR:-/tmp}/cka-cell-unknown-state.XXXXXX")"
+  case "$case_root" in /tmp/*|/var/tmp/*) ;; *) return 1 ;; esac
+  trap 'rm -rf -- "$case_root"' EXIT
+  export CKA_CELL_RUNTIME_DIR="$case_root/runtime"
+  export CKA_CELL_ALLOW_NON_NATIVE_STATE=1
+  export CKA_ENABLE_DISPOSABLE_CELLS=1
+  mkdir -m 0700 "$CKA_CELL_RUNTIME_DIR"
+  : > "$case_root/docker.log"
+  # shellcheck source=../lib/cell.sh
+  source "$CKA_ROOT/lib/cell.sh"
+  _cell_lock() { :; }
+  _cell_lock_is_owned() { :; }
+  _cell_docker() { printf '%s\n' "$*" >> "$case_root/docker.log"; return 96; }
+
+  state_dir="$CKA_CELL_RUNTIME_DIR/ca-12"
+  mkdir -m 0700 "$state_dir"
+  CELL_RUN_ID=00000000000000000000000000000000
+  CELL_QID=ca-12
+  CELL_PROFILE=operator-cell
+  CELL_CLUSTER_NAME=cka-cell-ca-12-000000000000
+  CELL_NETWORK_NAME="$CELL_CLUSTER_NAME"
+  CELL_NETWORK_ID=PENDING
+  CELL_STATUS=PREPARING
+  declare -gA CELL_CONTAINER_IDS=()
+  _cell_volume_arrays_init
+  CELL_VOLUME_COUNTS[cp1]=0
+  CELL_VOLUME_COUNTS[worker1]=0
+  _cell_manifest_write ca-12
+  : > "$state_dir/.manifest.interrupted"
+
+  ! cell_destroy ca-12 >/dev/null 2>&1 \
+    && [ -f "$state_dir/manifest" ] \
+    && [ -f "$state_dir/.manifest.interrupted" ] \
+    && [ ! -s "$case_root/docker.log" ]
+)
+
+lifecycle_lock_revalidation_and_selection_serialization() (
+  set -uo pipefail
+  local case_root holder="" rc=0
+  case_root="$(mktemp -d "${TMPDIR:-/tmp}/cka-cell-lock-recheck.XXXXXX")" || return 1
+  case "$case_root" in /tmp/*|/var/tmp/*) ;; *) return 1 ;; esac
+  cleanup_lock_case() {
+    if [ -n "$holder" ]; then
+      kill "$holder" 2>/dev/null || true
+      wait "$holder" 2>/dev/null || true
+    fi
+    rm -rf -- "$case_root"
+  }
+  trap cleanup_lock_case EXIT
+  export CKA_CELL_RUNTIME_DIR="$case_root/runtime"
+  export CKA_STATE_DIR="$case_root/state"
+  export CKA_CELL_ALLOW_NON_NATIVE_STATE=1
+  mkdir -m 0700 "$CKA_CELL_RUNTIME_DIR" "$CKA_STATE_DIR"
+  printf 'ca-09\n' > "$CKA_STATE_DIR/active-cell"
+  chmod 0600 "$CKA_STATE_DIR/active-cell"
+  # shellcheck source=../lib/cell.sh
+  source "$CKA_ROOT/lib/cell.sh"
+
+  _cell_lock || return 1
+  flock --unlock "$CELL_LOCK_FD" || return 1
+  (
+    exec 8> "$CKA_CELL_RUNTIME_DIR/lifecycle.lock"
+    flock --exclusive 8
+    : > "$case_root/held"
+    sleep 30
+  ) &
+  holder=$!
+  for _ in $(seq 1 100); do
+    [ -e "$case_root/held" ] && break
+    sleep 0.01
+  done
+  [ -e "$case_root/held" ] || return 1
+
+  ! _cell_lock_is_owned || return 1
+  CKA_CELL_LOCK_WAIT_SECONDS=1 cell_selection_clear_current >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq "$CKA_CELL_LOCK_TIMEOUT_RC" ] \
+    && [ "$(cat "$CKA_STATE_DIR/active-cell")" = ca-09 ]
+)
+
+lifecycle_lock_hardlink_is_rejected_without_mutation() (
+  set -euo pipefail
+  local case_root
+  case_root="$(mktemp -d "${TMPDIR:-/tmp}/cka-cell-lock-hardlink.XXXXXX")"
+  case "$case_root" in /tmp/*|/var/tmp/*) ;; *) return 1 ;; esac
+  trap 'rm -rf -- "$case_root"' EXIT
+  export CKA_CELL_RUNTIME_DIR="$case_root/runtime"
+  export CKA_CELL_ALLOW_NON_NATIVE_STATE=1
+  mkdir -m 0700 "$CKA_CELL_RUNTIME_DIR"
+  printf 'do-not-touch\n' > "$case_root/target"
+  chmod 0600 "$case_root/target"
+  ln "$case_root/target" "$CKA_CELL_RUNTIME_DIR/lifecycle.lock"
+  # shellcheck source=../lib/cell.sh
+  source "$CKA_ROOT/lib/cell.sh"
+
+  ! _cell_lock >/dev/null 2>&1 \
+    && [ "$(cat "$case_root/target")" = do-not-touch ] \
+    && [ "$(stat -c %h "$case_root/target")" = 2 ]
+)
+
 stable_api_present() {
   local lib="$CKA_ROOT/lib/cell.sh" function
   for function in cell_prepare cell_activate cell_cleanup cell_status \
       cell_select cell_selected_qid cell_selection_clear \
-      cell_selection_clear_current; do
+      cell_selection_clear_current cell_cleanup_all_managed; do
     grep -Eq "^${function}\(\)" "$lib" || return 1
   done
 }
@@ -589,7 +693,7 @@ lifecycle_lock_acquisition_is_bounded() {
     && grep -Fq -- '--conflict-exit-code "$CKA_CELL_LOCK_TIMEOUT_RC"' <<<"$body" \
     && grep -Fq 'rc=$?' <<<"$body" \
     && grep -Fq 'exec {CELL_LOCK_FD}>&-' <<<"$body" \
-    && [ "$(grep -Fc '_cell_lock || return $?' "$library")" -eq 4 ] \
+    && [ "$(grep -Fc '_cell_lock || return $?' "$library")" -eq 8 ] \
     && grep -Fq 'active selection is cleared only after exact cleanup succeeds' "$runtime" \
     && grep -Fq 'return "$cleanup_rc"' "$runtime"
 }
@@ -670,7 +774,7 @@ ssh_wrapper_never_falls_back_when_cell_library_is_unavailable() (
     && grep -Fq '일회용 셀을 안전하게 검증할 수 없어' "$temp/out"
 )
 
-_volume_cleanup_fake_case() ( # <success|stopped|foreign-endpoint|foreign-mount|linked|fingerprint-drift>
+_volume_cleanup_fake_case() ( # <success|stopped|foreign-endpoint|foreign-mount|linked|fingerprint-drift|rmdir-fail>
   set -uo pipefail
   local mode="$1" case_root state_dir rc=0
   local cp1_id worker1_id network_id cp1_volume worker1_volume sentinel_volume foreign_id
@@ -699,6 +803,7 @@ _volume_cleanup_fake_case() ( # <success|stopped|foreign-endpoint|foreign-mount|
   # shellcheck source=../lib/cell.sh
   source "$CKA_ROOT/lib/cell.sh"
   _cell_lock() { :; }
+  _cell_lock_is_owned() { :; }
   _cell_docker() {
     local object="${1:-}" action="${2:-}" template="${4:-}" target="${!#}"
     local filter="${!#}" own_id="" volume_name=""
@@ -795,6 +900,7 @@ _volume_cleanup_fake_case() ( # <success|stopped|foreign-endpoint|foreign-mount|
         mv -- "$case_root/volumes.next" "$case_root/volumes"
         ;;
       network:inspect)
+        [ ! -e "$case_root/network-removed" ] || return 1
         if [[ "$template" == *'len .Containers'* ]]; then
           printf '0\n'
         elif [[ "$template" == *'range .Containers'* ]]; then
@@ -810,7 +916,8 @@ _volume_cleanup_fake_case() ( # <success|stopped|foreign-endpoint|foreign-mount|
           printf '%s|%s|ca-12\n' "$network_id" "$CELL_RUN_ID"
         fi
         ;;
-      network:rm) return 0 ;;
+      network:ls) return 0 ;;
+      network:rm) : > "$case_root/network-removed"; return 0 ;;
       *) return 97 ;;
     esac
   }
@@ -838,6 +945,9 @@ _volume_cleanup_fake_case() ( # <success|stopped|foreign-endpoint|foreign-mount|
   if [ "$mode" = fingerprint-drift ]; then
     CKA_FAKE_VOLUME_GENERATION=recreated
   fi
+  if [ "$mode" = rmdir-fail ]; then
+    rmdir() { return 88; }
+  fi
 
   cell_destroy ca-12 >/dev/null 2>&1 || rc=$?
   case "$mode" in
@@ -854,6 +964,15 @@ _volume_cleanup_fake_case() ( # <success|stopped|foreign-endpoint|foreign-mount|
         && ! grep -Fq -- 'container rm --force' "$case_root/docker.log" \
         && ! grep -Fq -- 'volume rm ' "$case_root/docker.log" \
         && ! grep -Fq -- 'network rm ' "$case_root/docker.log"
+      ;;
+    rmdir-fail)
+      [ "$rc" -ne 0 ] && [ -d "$state_dir" ] && [ -f "$state_dir/manifest" ] \
+        && grep -Fq -- 'network rm ' "$case_root/docker.log" || return 1
+      cell_manifest_load ca-12 || return 1
+      [ "$CELL_STATUS" = PREPARING ] && [ "$CELL_NETWORK_ID" = PENDING ] || return 1
+      unset -f rmdir
+      cell_destroy ca-12 >/dev/null 2>&1 \
+        && [ ! -e "$state_dir" ]
       ;;
     *) return 1 ;;
   esac
@@ -882,6 +1001,99 @@ stopped_sealed_container_may_lack_a_live_network_endpoint() {
 foreign_network_endpoint_fails_closed() {
   _volume_cleanup_fake_case foreign-endpoint
 }
+
+state_directory_removal_failure_is_propagated() {
+  _volume_cleanup_fake_case rmdir-fail
+}
+
+managed_inventory_allows_an_interrupted_container_removal() (
+  set -euo pipefail
+  local case_root state_dir network_id cp1_id worker1_id
+  case_root="$(mktemp -d "${TMPDIR:-/tmp}/cka-cell-inventory-retry.XXXXXX")"
+  case "$case_root" in /tmp/*|/var/tmp/*) ;; *) return 1 ;; esac
+  trap 'rm -rf -- "$case_root"' EXIT
+  export CKA_CELL_RUNTIME_DIR="$case_root/runtime"
+  export CKA_STATE_DIR="$case_root/state"
+  export CKA_CELL_ALLOW_NON_NATIVE_STATE=1
+  export CKA_ENABLE_DISPOSABLE_CELLS=1
+  mkdir -m 0700 "$CKA_CELL_RUNTIME_DIR"
+  mkdir -p "$CKA_STATE_DIR"
+  # shellcheck source=../lib/cell.sh
+  source "$CKA_ROOT/lib/cell.sh"
+  _cell_lock_is_owned() { :; }
+
+  network_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  cp1_id=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  worker1_id=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  state_dir="$CKA_CELL_RUNTIME_DIR/ca-09"
+  mkdir -m 0700 "$state_dir"
+  CELL_RUN_ID=0123456789abcdef0123456789abcdef
+  CELL_QID=ca-09
+  CELL_PROFILE=operator-cell
+  CELL_CLUSTER_NAME=cka-cell-ca-09-0123456789ab
+  CELL_NETWORK_NAME="$CELL_CLUSTER_NAME"
+  CELL_NETWORK_ID="$network_id"
+  CELL_STATUS=DELETING
+  declare -gA CELL_CONTAINER_IDS=([cp1]="$cp1_id" [worker1]="$worker1_id")
+  _cell_volume_arrays_init
+  CELL_VOLUME_COUNTS[cp1]=0
+  CELL_VOLUME_COUNTS[worker1]=0
+  _cell_manifest_write ca-09
+
+  _cell_docker() {
+    case "${1:-}:${2:-}" in
+      network:ls) printf '%s\n' "$network_id" ;;
+      ps:--all) printf '%s\n' "$cp1_id" ;;
+      container:inspect)
+        printf '%s|%s|END\n' "$cp1_id" "$CELL_CLUSTER_NAME"
+        ;;
+      *) return 97 ;;
+    esac
+  }
+
+  # worker1 was already removed by an earlier cleanup attempt. Its absence is
+  # retryable; any observed cka-cell container must still be journal-authorized.
+  _cell_managed_inventory_preflight_locked ca-09
+)
+
+empty_post_cleanup_debris_requires_clean_docker_inventory() (
+  set -euo pipefail
+  local case_root orphan_id rc=0
+  case_root="$(mktemp -d "${TMPDIR:-/tmp}/cka-cell-empty-debris.XXXXXX")"
+  case "$case_root" in /tmp/*|/var/tmp/*) ;; *) return 1 ;; esac
+  trap 'rm -rf -- "$case_root"' EXIT
+  export CKA_CELL_RUNTIME_DIR="$case_root/runtime"
+  export CKA_STATE_DIR="$case_root/state"
+  export CKA_CELL_ALLOW_NON_NATIVE_STATE=1
+  export CKA_ENABLE_DISPOSABLE_CELLS=1
+  mkdir -m 0700 "$CKA_CELL_RUNTIME_DIR"
+  mkdir -p "$CKA_STATE_DIR"
+  mkdir -m 0700 "$CKA_CELL_RUNTIME_DIR/ca-09"
+  : > "$case_root/docker.log"
+  # shellcheck source=../lib/cell.sh
+  source "$CKA_ROOT/lib/cell.sh"
+  _cell_lock() { :; }
+  _cell_lock_is_owned() { :; }
+  orphan_id=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  FAKE_ORPHAN=1
+  _cell_docker() {
+    printf '%s\n' "$*" >> "$case_root/docker.log"
+    case "${1:-}:${2:-}" in
+      network:ls) [ "$FAKE_ORPHAN" = 0 ] || printf '%s\n' "$orphan_id" ;;
+      ps:--all) return 0 ;;
+      *) return 97 ;;
+    esac
+  }
+
+  cell_cleanup_all_managed >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] \
+    && [ -d "$CKA_CELL_RUNTIME_DIR/ca-09" ] \
+    && ! grep -Eq -- '(container|volume|network) rm' "$case_root/docker.log" || return 1
+
+  FAKE_ORPHAN=0
+  cell_cleanup_all_managed >/dev/null 2>&1 \
+    && [ ! -e "$CKA_CELL_RUNTIME_DIR/ca-09" ]
+)
 
 host_space_preflight_is_bounded_and_explicit() (
   set -uo pipefail
@@ -961,6 +1173,8 @@ check "an exact lost PREPARING journal can be reconstructed without Docker mutat
   lost_journal_can_be_reconstructed_without_mutation
 check "an unallocated PREPARING intent removes local state without Docker mutation" \
   pending_intent_without_objects_cleans_local_only
+check "unknown cell state blocks cleanup before any Docker mutation" \
+  unknown_cell_state_blocks_cleanup_before_docker_mutation
 check "runner-facing stable cell API exists" stable_api_present
 check "cell mutation identity rejects shared aliases and sealed-state drift" \
   active_identity_rejects_context_alias_and_manifest_drift
@@ -968,6 +1182,10 @@ check "cell creation, prepare and API readiness have explicit deadlines" \
   cell_creation_and_readiness_are_bounded
 check "lifecycle lock contention is bounded and preserves its timeout status" \
   lifecycle_lock_acquisition_is_bounded
+check "lock ownership is revalidated and selection mutations serialize" \
+  lifecycle_lock_revalidation_and_selection_serialization
+check "lifecycle lock rejects hardlinks without modifying their target" \
+  lifecycle_lock_hardlink_is_rejected_without_mutation
 check "active cell selection rejects extra data and clears exactly" selection_pointer_is_strict
 check "ssh wrapper enters disposable nodes by verified immutable ID" ssh_wrapper_uses_verified_cell_ids
 check "broken active-cell selection never falls back to shared nodes" \
@@ -986,6 +1204,12 @@ check "cleanup permits a stopped sealed container without a live network endpoin
   stopped_sealed_container_may_lack_a_live_network_endpoint
 check "cleanup rejects a network endpoint outside the sealed container allowlist" \
   foreign_network_endpoint_fails_closed
+check "cleanup propagates final state-directory removal failure" \
+  state_directory_removal_failure_is_propagated
+check "global inventory permits retry after a sealed container was already removed" \
+  managed_inventory_allows_an_interrupted_container_removal
+check "empty post-cleanup debris is removed only with a clean Docker inventory" \
+  empty_post_cleanup_debris_requires_clean_docker_inventory
 check "host-space guard enforces the 10 GiB floor with explicit opt-in only" \
   host_space_preflight_is_bounded_and_explicit
 check "host-space guard runs before Docker access or object allocation" \

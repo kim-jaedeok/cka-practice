@@ -81,6 +81,7 @@ pass "fixed SSH seed regenerates a unique compatible 17-question form"
 export CKA_EXAM_SOURCE_ONLY=1
 # shellcheck source=../exam/mock-exam.sh
 source "$ROOT/exam/mock-exam.sh"
+export CKA_INFRA_LOCK_TEST_OVERRIDE=1
 
 (
   POD_FIXTURE='{"items":[{"metadata":{"namespace":"ns","name":"managed","ownerReferences":[{"controller":true}]}}]}'
@@ -210,6 +211,276 @@ pass "production clock rejects overrides; deadline sealing is locked and idempot
   if exam_actions_locked; then fail "ARCHIVED exam state remained locked"; fi
 )
 pass "common exam action guard fails closed on corrupt state"
+
+(
+  CKA_SSH_RUNNER_STATE_ROOT="$TMP/supervised-guard"
+  if supervised_exam_actions_locked; then
+    fail "missing supervised runner root was locked"
+  fi
+  mkdir -m 0700 "$CKA_SSH_RUNNER_STATE_ROOT"
+  if supervised_exam_actions_locked; then
+    fail "inactive supervised runner root was locked"
+  fi
+  : > "$CKA_SSH_RUNNER_STATE_ROOT/active"
+  supervised_exam_actions_locked \
+    || fail "active supervised runner was not locked"
+  rm -- "$CKA_SSH_RUNNER_STATE_ROOT/active"
+  mv -- "$CKA_SSH_RUNNER_STATE_ROOT" "$TMP/supervised-guard-real"
+  ln -s "$TMP/supervised-guard-real" "$CKA_SSH_RUNNER_STATE_ROOT"
+  supervised_exam_actions_locked \
+    || fail "unsafe supervised runner root was not fail-closed"
+)
+pass "supervised exam action guard blocks active or unsafe runner state"
+
+(
+  mkdir -m 0700 "$TMP/infrastructure-gate-target"
+  ln -s "$TMP/infrastructure-gate-target" "$TMP/infrastructure-gate-link"
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-gate-link"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  if infrastructure_lock_run nowait true >/dev/null 2>&1; then
+    fail "infrastructure lock accepted a symlinked state root"
+  fi
+  rm -- "$TMP/infrastructure-gate-link"
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-gate-target"
+  mkfifo "$CKA_INFRA_LOCK_ROOT/infrastructure.lock"
+  if infrastructure_lock_run nowait true >/dev/null 2>&1; then
+    fail "infrastructure lock accepted a non-regular lock file"
+  fi
+)
+pass "host infrastructure gate rejects unsafe state and lock paths"
+
+(
+  mkdir -m 0700 "$TMP/infrastructure-hardlink-gate"
+  printf 'do-not-touch\n' > "$TMP/infrastructure-hardlink-target"
+  chmod 0600 "$TMP/infrastructure-hardlink-target"
+  ln "$TMP/infrastructure-hardlink-target" \
+    "$TMP/infrastructure-hardlink-gate/infrastructure.lock"
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-hardlink-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  if infrastructure_lock_run nowait true >/dev/null 2>&1; then
+    fail "infrastructure gate accepted a hardlinked lock file"
+  fi
+  [ "$(cat "$TMP/infrastructure-hardlink-target")" = do-not-touch ] \
+    || fail "infrastructure lock validation modified a hardlink target"
+)
+pass "host infrastructure gate rejects hardlinked locks without mutation"
+
+infra_holder=""
+infra_signal_guard=""
+cleanup_infra_holder() {
+  if [ -n "$infra_holder" ]; then
+    printf 'release\n' > "$TMP/infrastructure-lock-release" 2>/dev/null \
+      || kill "$infra_holder" 2>/dev/null || true
+    wait "$infra_holder" 2>/dev/null || true
+  fi
+  if [ -n "$infra_signal_guard" ]; then
+    kill -TERM "$infra_signal_guard" 2>/dev/null || true
+    wait "$infra_signal_guard" 2>/dev/null || true
+  fi
+}
+trap 'cleanup_infra_holder; rm -rf -- "$TMP"' EXIT
+mkfifo "$TMP/infrastructure-lock-release"
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  CKA_INFRA_LOCK_WAIT_SECONDS=1
+  infrastructure_lock_run wait bash -c '
+    : > "$1/infrastructure-lock-held"
+    exec 8<> "$1/infrastructure-lock-release"
+    IFS= read -r _ <&8
+  ' bash "$TMP"
+) &
+infra_holder=$!
+for _ in $(seq 1 100); do
+  [ -e "$TMP/infrastructure-lock-held" ] && break
+  sleep 0.01
+done
+[ -e "$TMP/infrastructure-lock-held" ] || fail "infrastructure lock holder did not start"
+set +e
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  CKA_INFRA_LOCK_WAIT_SECONDS=1
+  infrastructure_lock_run wait true
+) >/dev/null 2>&1
+infra_contender_rc=$?
+set -e
+[ "$infra_contender_rc" -eq "$CKA_INFRA_LOCK_TIMEOUT_RC" ] \
+  || fail "infrastructure lock contention did not return the timeout status"
+[ "$(stat -c %a "$TMP/infrastructure-gate")" = 700 ] \
+  || fail "infrastructure lock root permissions are not 0700"
+[ "$(stat -c %a "$TMP/infrastructure-gate/infrastructure.lock")" = 600 ] \
+  || fail "infrastructure lock permissions are not 0600"
+cleanup_infra_holder
+infra_holder=""
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  CKA_INFRA_LOCK_WAIT_SECONDS=1
+  umask 022
+  infrastructure_lock_run wait true
+  [ "$(umask)" = 0022 ] || fail "infrastructure lock preparation leaked its umask"
+) || fail "infrastructure lock was not reusable after release"
+pass "host infrastructure mutations use one bounded exclusive gate"
+
+mkfifo "$TMP/infrastructure-descendant-release"
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_run wait bash -c '
+    (
+      exec 8<> "$1/infrastructure-descendant-release"
+      : > "$1/infrastructure-descendant-ready"
+      IFS= read -r _ <&8
+    ) &
+  ' bash "$TMP"
+)
+for _ in $(seq 1 100); do
+  [ -e "$TMP/infrastructure-descendant-ready" ] && break
+  sleep 0.01
+done
+[ -e "$TMP/infrastructure-descendant-ready" ] \
+  || fail "infrastructure lock descendant did not start"
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_run nowait true
+) || fail "a long-lived descendant inherited the infrastructure lock"
+printf 'release\n' > "$TMP/infrastructure-descendant-release"
+pass "infrastructure lock descriptor is closed before long-lived descendants"
+
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-signal-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_exec wait bash -c '
+    trap "exit 143" TERM INT HUP
+    printf "%s\n" "$$" > "$1/infrastructure-guarded-child"
+    while :; do sleep 0.1; done
+  ' bash "$TMP"
+) &
+infra_signal_guard=$!
+for _ in $(seq 1 100); do
+  [ -s "$TMP/infrastructure-guarded-child" ] && break
+  sleep 0.01
+done
+[ -s "$TMP/infrastructure-guarded-child" ] \
+  || fail "signal-safe infrastructure guardian did not start its child"
+infra_guarded_child="$(cat "$TMP/infrastructure-guarded-child")"
+kill -TERM "$infra_signal_guard"
+set +e
+wait "$infra_signal_guard"
+infra_signal_rc=$?
+set -e
+infra_signal_guard=""
+[ "$infra_signal_rc" -eq 143 ] \
+  || fail "infrastructure guardian did not preserve TERM status (got $infra_signal_rc)"
+! kill -0 "$infra_guarded_child" 2>/dev/null \
+  || fail "infrastructure guardian left its mutating child alive after TERM"
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-signal-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_run nowait true
+) || fail "infrastructure guardian released the lock before reaping its child"
+pass "infrastructure guardian forwards termination and reaps before unlock"
+
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-quit-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_exec wait bash -c '
+    trap "exit 131" QUIT
+    printf "%s\n" "$$" > "$1/infrastructure-quit-child"
+    while :; do sleep 0.1; done
+  ' bash "$TMP"
+) &
+infra_signal_guard=$!
+for _ in $(seq 1 100); do
+  [ -s "$TMP/infrastructure-quit-child" ] && break
+  sleep 0.01
+done
+[ -s "$TMP/infrastructure-quit-child" ] \
+  || fail "SIGQUIT infrastructure guardian fixture did not start"
+infra_quit_child="$(cat "$TMP/infrastructure-quit-child")"
+kill -QUIT "$infra_signal_guard"
+set +e
+wait "$infra_signal_guard"
+infra_quit_rc=$?
+set -e
+infra_signal_guard=""
+[ "$infra_quit_rc" -eq 131 ] \
+  || fail "infrastructure guardian did not preserve SIGQUIT status"
+! kill -0 "$infra_quit_child" 2>/dev/null \
+  || fail "infrastructure guardian left its child alive after SIGQUIT"
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-quit-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_run nowait true
+) || fail "infrastructure guardian unlocked before reaping its SIGQUIT child"
+pass "infrastructure guardian forwards SIGQUIT and reaps before unlock"
+
+mkfifo "$TMP/infrastructure-group-release"
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-group-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_exec wait bash -c '
+    (
+      trap ": > \"$1/infrastructure-group-cleanup\"; exec 8<> \"$1/infrastructure-group-release\"; IFS= read -r _ <&8; exit 0" TERM INT HUP
+      while :; do sleep 0.1; done
+    ) &
+    printf "%s\n" "$!" > "$1/infrastructure-group-member"
+    trap "exit 143" TERM INT HUP
+    : > "$1/infrastructure-group-ready"
+    while :; do sleep 0.1; done
+  ' bash "$TMP"
+) &
+infra_signal_guard=$!
+for _ in $(seq 1 100); do
+  [ -e "$TMP/infrastructure-group-ready" ] && break
+  sleep 0.01
+done
+[ -e "$TMP/infrastructure-group-ready" ] \
+  || fail "infrastructure process-group fixture did not start"
+kill -TERM "$infra_signal_guard"
+for _ in $(seq 1 200); do
+  [ -e "$TMP/infrastructure-group-cleanup" ] && break
+  sleep 0.01
+done
+[ -e "$TMP/infrastructure-group-cleanup" ] \
+  || fail "background group member did not enter TERM cleanup"
+set +e
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-group-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_run nowait true
+) >/dev/null 2>&1
+infra_group_contender_rc=$?
+set -e
+[ "$infra_group_contender_rc" -eq "$CKA_INFRA_LOCK_TIMEOUT_RC" ] \
+  || fail "guardian unlocked while a signalled process-group member was live"
+printf 'release\n' > "$TMP/infrastructure-group-release"
+set +e
+wait "$infra_signal_guard"
+infra_group_signal_rc=$?
+set -e
+infra_signal_guard=""
+[ "$infra_group_signal_rc" -eq 143 ] \
+  || fail "process-group guardian did not preserve TERM status"
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-group-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_run nowait true
+) || fail "process-group guardian did not release after live members exited"
+
+set +e
+(
+  CKA_INFRA_LOCK_ROOT="$TMP/infrastructure-status-gate"
+  CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE=1
+  infrastructure_lock_run wait bash -c 'exit 42'
+) >/dev/null 2>&1
+infra_status_rc=$?
+set -e
+[ "$infra_status_rc" -eq 42 ] \
+  || fail "infrastructure guardian changed child status 42 to $infra_status_rc"
+pass "infrastructure guardian holds through process-group cleanup and preserves status"
 
 set +e
 (

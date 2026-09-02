@@ -12,8 +12,11 @@ DOMAIN_ORDER=(troubleshooting cluster-architecture services-networking workloads
 # 모의고사 준비/진행/채점 중에는 학습용 명령으로 문제 상태를 보거나 고칠 수 없다.
 # 상태 읽기/잠금 판정은 lib/common.sh의 공통 helper를 사용한다.
 deny_if_exam_locked() {
-  exam_actions_locked || return 0
-  die "모의고사가 $(exam_state_get) 상태입니다. 시험 중에는 start/grade/solution/reset/cleanup 및 클러스터 변경을 사용할 수 없습니다."
+  if exam_actions_locked; then
+    die "모의고사가 $(exam_state_get) 상태입니다. 시험 중에는 start/grade/solution/reset/cleanup 및 클러스터 변경을 사용할 수 없습니다."
+  fi
+  supervised_exam_actions_locked || return 0
+  die "감독형 SSH 모의고사가 활성 상태입니다. 먼저 'cka exam-ssh cleanup'을 실행하세요."
 }
 
 usage() {
@@ -33,7 +36,8 @@ ${C_BLD}cka — CKA 시험 연습 CLI${C_RST}
   cka exam-ssh <command>   systemd 감독형 지정-host SSH 모의고사 (opt-in)
   cka web [port]           웹 스플릿 뷰 (왼쪽 지문 / 오른쪽 터미널, 기본 7681)
   cka cluster up|down|reset|doctor|status
-                           연습용 kind 클러스터 관리 (doctor: 애드온 점검·복구)
+                            연습용 kind 인프라 관리
+                            (down: 관리 셀+공유 클러스터, doctor: 애드온 점검·복구)
 
   domain: troubleshooting | cluster-architecture | services-networking
         | workloads-scheduling | storage
@@ -148,20 +152,45 @@ cmd_doctor() {
   printf '\n'
 }
 
+cmd_cluster_down() (
+  set -uo pipefail
+  deny_if_exam_locked
+  _cloud_provider_kind_validate_cluster_name "$CKA_CLUSTER_NAME" \
+    || die "공유 KIND cluster 이름이 안전하지 않습니다: $CKA_CLUSTER_NAME"
+  [ "$CKA_CONTEXT" = "kind-$CKA_CLUSTER_NAME" ] \
+    || die "공유 cluster 이름과 kubectl context가 일치하지 않아 정리를 중단합니다: $CKA_CLUSTER_NAME / $CKA_CONTEXT"
+  _question_runtime_load_cell_library \
+    || die "일회용 셀 정리 기능을 불러오지 못했습니다."
+  CKA_ENABLE_DISPOSABLE_CELLS="${CKA_ENABLE_DISPOSABLE_CELLS:-1}"
+  cell_feature_enabled \
+    || die "일회용 셀 전체 정리에는 CKA_ENABLE_DISPOSABLE_CELLS=1 이 필요합니다."
+  _cell_lock \
+    || die "일회용 셀 lifecycle lock을 획득하지 못해 공유 클러스터 삭제를 중단합니다."
+  _cell_cleanup_all_managed_locked \
+    || die "관리 중인 일회용 문제 환경을 안전하게 정리하지 못해 공유 클러스터 삭제를 중단합니다."
+  cloud_provider_kind_cleanup_cluster_loadbalancers "$CKA_CLUSTER_NAME" \
+    || die "클러스터 삭제 전 LoadBalancer Service/container 정리에 실패했습니다."
+  kind delete cluster --name "$CKA_CLUSTER_NAME" \
+    || die "kind 클러스터 삭제에 실패했습니다."
+  cloud_provider_kind_stop_if_no_clusters \
+    || die "클러스터는 삭제됐지만 소유한 Cloud Provider KIND를 안전하게 종료하지 못했습니다."
+)
+
 cmd_cluster() {
   case "${1:-status}" in
-    up)     deny_if_exam_locked; bash "$CKA_ROOT/cluster/setup-cluster.sh" ;;
-    down)
+    up)
       deny_if_exam_locked
-      cloud_provider_kind_cleanup_cluster_loadbalancers "$CKA_CLUSTER_NAME" \
-        || die "클러스터 삭제 전 LoadBalancer Service/container 정리에 실패했습니다."
-      kind delete cluster --name "$CKA_CLUSTER_NAME" \
-        || die "kind 클러스터 삭제에 실패했습니다."
-      cloud_provider_kind_stop_if_no_clusters \
-        || die "클러스터는 삭제됐지만 소유한 Cloud Provider KIND를 안전하게 종료하지 못했습니다."
+      bash "$CKA_ROOT/cluster/setup-cluster.sh"
       ;;
-    reset)  deny_if_exam_locked; bash "$CKA_ROOT/cluster/reset-cluster.sh" ;;
-    doctor) deny_if_exam_locked; cmd_doctor ;;
+    down)   cmd_cluster_down ;;
+    reset)
+      deny_if_exam_locked
+      bash "$CKA_ROOT/cluster/reset-cluster.sh"
+      ;;
+    doctor)
+      deny_if_exam_locked
+      cmd_doctor
+      ;;
     status)
       require_cluster_readonly
       kctx get nodes
@@ -172,6 +201,78 @@ cmd_cluster() {
     *) die "cka cluster up|down|reset|doctor|status" ;;
   esac
 }
+
+cmd_exam_entry() {
+  local action="${1:-start}"
+  [ "$action" != start ] || deny_if_exam_locked
+  bash "$CKA_ROOT/exam/mock-exam.sh" "$@"
+}
+
+cmd_exam_ssh_entry() {
+  local action="${1:-help}"
+  [ "$action" != prepare ] || deny_if_exam_locked
+  bash "$CKA_ROOT/exam/supervised-exam.sh" "$@"
+}
+
+infrastructure_gate_mode() { # <cka argv...>; prints wait|nowait|none
+  local command="${1:-help}" action="${2:-}"
+  case "$command" in
+    start|grade|solution|reset|cleanup) printf '%s\n' nowait ;;
+    cluster)
+      case "${action:-status}" in
+        down) printf '%s\n' wait ;;
+        up|reset|doctor) printf '%s\n' nowait ;;
+        *) printf '%s\n' none ;;
+      esac
+      ;;
+    exam)
+      case "${action:-start}" in
+        start) printf '%s\n' nowait ;;
+        *) printf '%s\n' none ;;
+      esac
+      ;;
+    exam-ssh)
+      case "${action:-help}" in
+        prepare) printf '%s\n' nowait ;;
+        *) printf '%s\n' none ;;
+      esac
+      ;;
+    *) printf '%s\n' none ;;
+  esac
+}
+
+infrastructure_gate_parent_holds_lock() {
+  local parent_comm="" fd_path
+  [ "${CKA_INFRA_GATE_ACTIVE:-0}" = 1 ] || return 1
+  [ "${CKA_INFRA_GATE_PARENT_PID:-}" = "$PPID" ] || return 1
+  IFS= read -r parent_comm < "/proc/$PPID/comm" 2>/dev/null || return 1
+  [[ "$parent_comm" = python3* ]] || return 1
+  for fd_path in "/proc/$PPID/fd/"*; do
+    [ -e "$fd_path" ] || continue
+    [ "$fd_path" -ef "$CKA_INFRA_LOCK_FILE" ] && return 0
+  done
+  return 1
+}
+
+# Re-exec mutating public commands below the signal-forwarding lock guardian.
+# Production calls always converge on one UID-scoped path. Tests may opt into
+# an isolated /tmp root explicitly; ordinary environment overrides are ignored.
+if [ "${CKA_INFRA_LOCK_TEST_OVERRIDE:-0}" != 1 ]; then
+  CKA_INFRA_LOCK_ROOT="$CKA_INFRA_LOCK_CANONICAL_ROOT"
+  CKA_INFRA_LOCK_FILE="${CKA_INFRA_LOCK_ROOT%/}/infrastructure.lock"
+  unset CKA_INFRA_LOCK_ALLOW_NON_NATIVE_STATE
+fi
+infra_gate_is_active=0
+infrastructure_gate_parent_holds_lock && infra_gate_is_active=1
+unset CKA_INFRA_GATE_ACTIVE CKA_INFRA_GATE_PARENT_PID
+if [ "$infra_gate_is_active" -eq 0 ]; then
+  infra_gate_mode="$(infrastructure_gate_mode "$@")" \
+    || die "infrastructure gate mode를 결정하지 못했습니다."
+  if [ "$infra_gate_mode" != none ]; then
+    infrastructure_lock_exec "$infra_gate_mode" bash "$CKA_ROOT/cka" "$@"
+    exit $?
+  fi
+fi
 
 cmd="${1:-help}"
 shift || true
@@ -223,8 +324,8 @@ case "$cmd" in
     state_clear "$1"
     ok "문제 환경 정리 완료: $1"
     ;;
-  exam) bash "$CKA_ROOT/exam/mock-exam.sh" "$@" ;;
-  exam-ssh) bash "$CKA_ROOT/exam/supervised-exam.sh" "$@" ;;
+  exam) cmd_exam_entry "$@" ;;
+  exam-ssh) cmd_exam_ssh_entry "$@" ;;
   web) bash "$CKA_ROOT/web/serve.sh" "$@" ;;
   cluster) cmd_cluster "${1:-status}" ;;
   help|--help|-h) usage ;;
