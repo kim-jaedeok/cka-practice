@@ -72,6 +72,16 @@ echo "alias cka='$(pwd)/cka'" >> ~/.bashrc && source ~/.bashrc
 > 확인한 뒤 `worker → control-plane → worker2` 순서로 복구하며, 일반 채점 경로는
 > 클러스터 상태를 변경하지 않습니다.
 
+기존 클러스터에 다시 `up`을 실행하면 Calico, metrics-server, ingress-nginx,
+Gateway API (Application Programming Interface), Cloud Provider KIND, grader-client의
+버전·필수 설정·준비 상태를 먼저 검사하고 정상인 단계의 `apply`/재기동을 생략한다.
+노드 이미지와 편집기 준비는 세 노드 사이에서 병렬로 수행하며, 이미 노드의
+CRI (Container Runtime Interface) 캐시에 있는 이미지는 다시 pull하지 않는다.
+캐시를 의도적으로 갱신하려면 `CKA_REFRESH_PRELOAD_IMAGES=1 ./cka cluster up`,
+단계별 소요 시간을 보려면 `CKA_SETUP_TIMING=1 ./cka cluster up`을 사용한다.
+이미지 캐시 동작의 배경은 [Kubernetes 이미지 문서](https://kubernetes.io/docs/concepts/containers/images/),
+사용하는 `crictl inspecti`/`pull` 명령은 [cri-tools 공식 문서](https://github.com/kubernetes-sigs/cri-tools/blob/master/docs/crictl.md)에 있다.
+
 ## 문제 풀이 흐름
 
 ```bash

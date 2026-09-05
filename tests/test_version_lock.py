@@ -66,6 +66,17 @@ class VersionLockTest(unittest.TestCase):
             self.assertNotIn("/master/", url, key)
             self.assertNotIn("/latest/", url, key)
 
+    def test_ingress_controller_image_is_exact_versioned_digest(self):
+        locked_version = self.lock["ingress_nginx_version"]
+        self.assertTrue(locked_version.startswith("controller-"))
+        version = locked_version[len("controller-") :]
+        image = self.lock["ingress_nginx_controller_image"]
+        self.assertRegex(
+            image,
+            r"^registry\.k8s\.io/ingress-nginx/controller:v\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$",
+        )
+        self.assertEqual(image.split(":", 1)[1].split("@", 1)[0], version)
+
     def test_download_checksums_are_sha256(self):
         for key, value in self.lock.items():
             if key.endswith("_sha256"):

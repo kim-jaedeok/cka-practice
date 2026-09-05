@@ -529,9 +529,9 @@ contract_addon_repair_failure_propagates() (
 check "addon repair failure propagates to the caller" contract_addon_repair_failure_propagates
 
 contract_addon_image_and_readiness_are_checked() (
-  kctx() { printf '%s' '7|7|1|1|registry.example/controller:v1@sha256:abc'; }
-  addon_deploy_ready_with_image ns controller 'registry.example/controller:v1*' \
-    && ! addon_deploy_ready_with_image ns controller 'registry.example/controller:v2*'
+  kctx() { printf '%s' '7|7|1|1|1|1|1||registry.example/controller:v1@sha256:abc'; }
+  addon_deploy_ready_with_image ns controller 'registry.example/controller:v1@sha256:abc' \
+    && ! addon_deploy_ready_with_image ns controller 'registry.example/controller:v2@sha256:abc'
 )
 
 contract_cloud_provider_lifecycle_is_fail_closed() {

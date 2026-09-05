@@ -9,7 +9,27 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 IFS=',' read -r -a PRELOAD_IMAGES <<< "$CKA_PRELOAD_IMAGES_CSV"
 
-step() { printf '\n%s\n' "${C_BLD}── $* ──${C_RST}"; }
+case "${CKA_SETUP_TIMING:-0}" in
+  0|1) ;;
+  *) die "CKA_SETUP_TIMING은 0 또는 1이어야 합니다." ;;
+esac
+SETUP_STEP_LABEL="사전 점검"
+SETUP_STEP_STARTED=$SECONDS
+SETUP_TOTAL_STARTED=$SECONDS
+step() {
+  if [ "${CKA_SETUP_TIMING:-0}" = 1 ]; then
+    info "소요 시간 [$SETUP_STEP_LABEL]: $((SECONDS - SETUP_STEP_STARTED))초"
+  fi
+  SETUP_STEP_LABEL="$*"
+  SETUP_STEP_STARTED=$SECONDS
+  printf '\n%s\n' "${C_BLD}── $* ──${C_RST}"
+}
+finish_setup_timing() {
+  if [ "${CKA_SETUP_TIMING:-0}" = 1 ]; then
+    info "소요 시간 [$SETUP_STEP_LABEL]: $((SECONDS - SETUP_STEP_STARTED))초"
+    info "총 소요 시간: $((SECONDS - SETUP_TOTAL_STARTED))초"
+  fi
+}
 
 for bin in docker kubectl curl sha256sum tar install flock nohup; do
   command -v "$bin" >/dev/null || die "$bin 이 설치되어 있지 않습니다."
@@ -39,25 +59,35 @@ download_locked() { # download_locked <url> <sha256> <destination>
 }
 
 step "1/9 kind 클러스터 생성 (name: $CKA_CLUSTER_NAME)"
-if kind get clusters 2>/dev/null | grep -qx "$CKA_CLUSTER_NAME"; then
-  info "클러스터가 이미 존재합니다. lock 일치 여부를 검사합니다."
-  recover_cluster_nodes_ordered \
-    || die "기존 클러스터의 identity 검증 또는 ordered recovery에 실패했습니다."
-  _wait_api
-  cluster_matches_version_lock \
-    || die "기존 클러스터가 versions.lock.yaml과 다릅니다. './cka cluster reset'으로 명시적으로 재생성하세요."
-else
-  # A newly created cluster is a new object generation.  Backups, fingerprints,
-  # grades, and exam state from a deleted predecessor must never be replayed
-  # into it (static control-plane manifests contain generation-specific IPs).
-  for state_child in backup question-data status exam; do
-    state_subdir_clear "$state_child" \
-      || die "이전 클러스터 상태를 안전하게 정리하지 못했습니다: $state_child"
-  done
-  kind create cluster --image "$KIND_NODE_IMAGE" --config "$SCRIPT_DIR/kind-config.yaml" \
-    || die "kind 클러스터 생성 실패"
-  cluster_matches_version_lock || die "생성된 클러스터가 versions.lock.yaml과 일치하지 않습니다."
-fi
+cluster_preexisting=0
+cluster_exists_rc=0
+kind_cluster_exists || cluster_exists_rc=$?
+case "$cluster_exists_rc" in
+  0)
+    cluster_preexisting=1
+    info "클러스터가 이미 존재합니다. lock 일치 여부를 검사합니다."
+    recover_cluster_nodes_ordered \
+      || die "기존 클러스터의 identity 검증 또는 ordered recovery에 실패했습니다."
+    _wait_api
+    cluster_matches_version_lock \
+      || die "기존 클러스터가 versions.lock.yaml과 다릅니다. './cka cluster reset'으로 명시적으로 재생성하세요."
+    ;;
+  1)
+    # A newly created cluster is a new object generation.  Backups, fingerprints,
+    # grades, and exam state from a deleted predecessor must never be replayed
+    # into it (static control-plane manifests contain generation-specific IPs).
+    for state_child in backup question-data status exam; do
+      state_subdir_clear "$state_child" \
+        || die "이전 클러스터 상태를 안전하게 정리하지 못했습니다: $state_child"
+    done
+    kind create cluster --image "$KIND_NODE_IMAGE" --config "$SCRIPT_DIR/kind-config.yaml" \
+      || die "kind 클러스터 생성 실패"
+    cluster_matches_version_lock || die "생성된 클러스터가 versions.lock.yaml과 일치하지 않습니다."
+    ;;
+  *)
+    die "KIND 클러스터 inventory를 읽지 못했습니다. Docker daemon과 KIND 설치를 확인하세요."
+    ;;
+esac
 
 # Docker daemon 재기동 시 worker가 먼저 IP를 확보하고, 다음 mutable 명령이
 # control-plane과 worker2를 검증된 순서로 복구하도록 restart policy를 고정한다.
@@ -65,23 +95,38 @@ configure_cluster_restart_policies \
   || die "KIND 노드 restart policy 설정 또는 검증에 실패했습니다."
 
 step "2/9 Calico CNI 설치 ($CALICO_VERSION)"
-kctx apply -f "$CALICO_MANIFEST_URL" \
-  || die "Calico 설치 실패"
-info "노드 Ready 대기 중..."
-kctx wait --for=condition=Ready nodes --all --timeout=300s >/dev/null || die "노드가 Ready 상태가 되지 않습니다."
+if [ "$cluster_preexisting" -eq 1 ] && addon_ok_calico; then
+  info "Calico가 lock 버전으로 정상 동작 중이라 apply를 생략합니다."
+else
+  addon_install_calico || die "Calico 설치 실패"
+fi
+info "Calico와 노드 Ready 대기 중..."
+addon_wait_calico || die "Calico와 노드 readiness/version 검증 실패"
 
 step "3/9 metrics-server 설치 (kubectl top / HPA 용)"
-metrics_manifest="$SETUP_TMP_DIR/metrics-server-components.yaml"
-download_locked "$METRICS_SERVER_URL" "$METRICS_SERVER_MANIFEST_SHA256" "$metrics_manifest"
-METRICS_SERVER_URL="$metrics_manifest"
-export METRICS_SERVER_URL
-addon_install_metrics_server || die "metrics-server 설치 실패"
+if [ "$cluster_preexisting" -eq 1 ] && addon_ok_metrics_server; then
+  info "metrics-server가 lock 버전과 필수 설정으로 정상 동작 중이라 apply를 생략합니다."
+else
+  metrics_manifest="$SETUP_TMP_DIR/metrics-server-components.yaml"
+  download_locked "$METRICS_SERVER_URL" "$METRICS_SERVER_MANIFEST_SHA256" "$metrics_manifest"
+  METRICS_SERVER_URL="$metrics_manifest"
+  export METRICS_SERVER_URL
+  addon_install_metrics_server || die "metrics-server 설치 실패"
+fi
 
 step "4/9 ingress-nginx 설치 (kind provider)"
-addon_install_ingress_nginx || die "ingress-nginx 설치 실패"
+if [ "$cluster_preexisting" -eq 1 ] && addon_ok_ingress_nginx; then
+  info "ingress-nginx가 lock 버전과 노드 배치 설정으로 정상 동작 중이라 apply를 생략합니다."
+else
+  addon_install_ingress_nginx || die "ingress-nginx 설치 실패"
+fi
 
 step "5/9 Gateway API CRD 설치 ($GATEWAY_API_VERSION)"
-addon_install_gateway_api || die "Gateway API CRD 설치 실패"
+if [ "$cluster_preexisting" -eq 1 ] && addon_ok_gateway_api; then
+  info "Gateway API CRD가 lock 버전으로 정상 동작 중이라 apply를 생략합니다."
+else
+  addon_install_gateway_api || die "Gateway API CRD 설치 실패"
+fi
 
 step "6/9 helm 설치"
 export PATH="$HOME/.local/bin:$PATH"
@@ -109,22 +154,22 @@ else
 fi
 
 step "7/9 Cloud Provider KIND 설치·기동 ($CLOUD_PROVIDER_KIND_VERSION)"
-addon_install_cloud_provider_kind || die "Cloud Provider KIND 설치 또는 시작 실패"
-addon_wait_cloud_provider_kind || die "Cloud Provider KIND process readiness/version 검증 실패"
+if [ "$cluster_preexisting" -eq 1 ] && addon_ok_cloud_provider_kind; then
+  info "Cloud Provider KIND가 lock 버전으로 정상 동작 중이라 재기동을 생략합니다."
+else
+  addon_install_cloud_provider_kind || die "Cloud Provider KIND 설치 또는 시작 실패"
+fi
 
 step "8/9 노드 준비: 이미지 프리로드 + 편집기 + ssh 래퍼"
 # docker 29의 containerd 이미지 스토어와 'kind load docker-image'가 호환되지 않아
-# 각 노드 안에서 crictl pull로 직접 받는다
-for node in "${CKA_CLUSTER_NAME}-control-plane" "${CKA_CLUSTER_NAME}-worker" "${CKA_CLUSTER_NAME}-worker2"; do
-  for img in "${PRELOAD_IMAGES[@]}"; do
-    docker exec "$node" crictl pull "docker.io/library/$img" >/dev/null 2>&1 \
-      || warn "$node에 $img 프리로드 실패 (풀이 시 원격 pull로 대체됨)"
-  done
-done
-# kind 노드에는 편집기가 없어 ts-12 등 매니페스트 직접 수정 문제가 막힌다 (실전 노드엔 있음)
-info "노드 편집기(vim·nano) 설치 중..."
-installed_editors="$(install_node_editors)"
-info "노드 편집기 설치 완료 (${installed_editors}개 노드 신규 설치)"
+# 각 노드 안에서 crictl로 확인·pull한다. 노드 간 작업은 최대 3개로 병렬 실행한다.
+info "노드별 이미지 캐시·편집기 준비 중..."
+if node_prep_summary="$(prepare_cluster_nodes "${PRELOAD_IMAGES[@]}")"; then
+  IFS='|' read -r preload_failures installed_editors editor_failures <<< "$node_prep_summary"
+  info "노드 준비 완료 (이미지 실패 ${preload_failures}, 편집기 신규 설치 ${installed_editors}, 편집기 실패 ${editor_failures})"
+else
+  die "검증된 KIND 노드의 identity가 바뀌었거나 병렬 준비 작업을 완료하지 못했습니다. 안전을 위해 중단합니다."
+fi
 
 # 실전 시험은 control plane 노드의 etcdctl을 직접 쓴다 (ca-03/ca-04)
 info "control plane에 etcd·etcdctl·etcdutl 설치 중..."
@@ -149,15 +194,23 @@ else
 fi
 
 step "9/9 채점용 상주 파드(cka-system/grader-client) + 대기"
-addon_install_grader_client || die "grader-client 설치 실패"
+if [ "$cluster_preexisting" -eq 1 ] && addon_ok_grader_client; then
+  info "grader-client가 지정 이미지와 명령으로 정상 동작 중이라 apply를 생략합니다."
+else
+  addon_install_grader_client || die "grader-client 설치 실패"
+fi
 
 info "핵심 컴포넌트 기동 대기 중..."
+addon_wait_calico || die "Calico와 노드 readiness/version 검증 실패"
 kctx -n kube-system rollout status deploy/coredns --timeout=180s >/dev/null \
   || die "coredns readiness 검증 실패"
+addon_wait_cloud_provider_kind || die "Cloud Provider KIND process readiness/version 검증 실패"
 addon_wait_metrics_server || die "metrics-server readiness/version 검증 실패"
 addon_wait_ingress_nginx || die "ingress-nginx readiness/version 검증 실패"
 addon_wait_gateway_api || die "Gateway API readiness/version 검증 실패"
 addon_wait_grader_client || die "grader-client readiness/version 검증 실패"
+
+finish_setup_timing
 
 mkdir -p "$CKA_WORK_DIR"
 

@@ -215,6 +215,10 @@ validate_version_lock() {
     || die "ingress_nginx_version 형식 오류: $INGRESS_NGINX_VERSION"
   [ "$INGRESS_NGINX_URL" = "https://raw.githubusercontent.com/kubernetes/ingress-nginx/$INGRESS_NGINX_VERSION/deploy/static/provider/kind/deploy.yaml" ] \
     || die "ingress-nginx URL/version이 lock 안에서 일치하지 않습니다."
+  [[ "$INGRESS_NGINX_CONTROLLER_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] \
+    && [ "${INGRESS_NGINX_CONTROLLER_IMAGE%@sha256:*}" = \
+      "registry.k8s.io/ingress-nginx/controller:${INGRESS_NGINX_VERSION#controller-}" ] \
+    || die "ingress-nginx controller image는 lock 버전 tag + sha256 digest로 고정해야 합니다."
   [[ "$GATEWAY_API_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || die "gateway_api_version 형식 오류: $GATEWAY_API_VERSION"
   [[ "$HELM_VERSION" =~ ^v3\.[0-9]+\.[0-9]+$ ]] \
@@ -258,6 +262,7 @@ load_version_lock() {
   _version_lock_assign METRICS_SERVER_MANIFEST_SHA256 metrics_server_manifest_sha256
   _version_lock_assign INGRESS_NGINX_VERSION ingress_nginx_version
   _version_lock_assign INGRESS_NGINX_URL ingress_nginx_manifest_url
+  _version_lock_assign INGRESS_NGINX_CONTROLLER_IMAGE ingress_nginx_controller_image
   _version_lock_assign GATEWAY_API_VERSION gateway_api_version
   _version_lock_assign HELM_VERSION helm_version
   _version_lock_assign HELM_LINUX_AMD64_SHA256 helm_linux_amd64_sha256
@@ -716,27 +721,177 @@ configure_cluster_restart_policies() {
   _cluster_reverify_sealed_inventory
 }
 
-# 모든 노드에 vi가 있으면 0(정상)
+# 노드 하나의 이미지 캐시와 편집기를 준비한다. 호출자는 검증된 immutable
+# container ID를 넘기며, 노드 안에서는 layer 경합을 피하려고 이미지를 직렬 처리한다.
+_prepare_cluster_node_one() { # <full-id> <display-name> [image ...]
+  local id="$1" node="$2" image ref pull_failures=0 editor_installed=0 editor_failures=0
+  shift 2
+  for image in "$@"; do
+    case "$image" in
+      */*) ref="$image" ;;
+      *) ref="docker.io/library/$image" ;;
+    esac
+    if [ "${CKA_REFRESH_PRELOAD_IMAGES:-0}" != 1 ] \
+        && docker exec "$id" crictl inspecti "$ref" >/dev/null 2>&1; then
+      continue
+    fi
+    if ! docker exec "$id" crictl pull "$ref" >/dev/null 2>&1; then
+      warn "$node에 $image 프리로드 실패 (풀이 시 원격 pull로 대체됨)" >&2
+      pull_failures=$((pull_failures + 1))
+    fi
+  done
+
+  if docker exec "$id" sh -c 'command -v vi >/dev/null 2>&1' 2>/dev/null; then
+    :
+  elif docker exec "$id" sh -c \
+      'apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y vim nano >/dev/null 2>&1'; then
+    editor_installed=1
+  else
+    warn "$node 편집기 설치 실패 (네트워크 확인). 노드에서 sed/docker cp로 대체 가능." >&2
+    editor_failures=1
+  fi
+  printf '%s|%s|%s\n' "$pull_failures" "$editor_installed" "$editor_failures"
+}
+
+# 세 노드 단위로 bounded parallelism을 적용한다. stdout은
+# "이미지 실패 수|편집기 신규 설치 노드 수|편집기 실패 노드 수"만 반환한다.
+prepare_cluster_nodes() ( # [image ...]
+  local tmp_dir="" i line pull installed editor_failed extra worker_failed=0 cleanup_done=0
+  local interrupted_signal="" interrupted_status=0
+  local total_pull=0 total_installed=0 total_editor_failed=0
+  local -a pids=() worker_pending=() result_files=() log_files=()
+  cleanup_node_prep_tmp() {
+    [ "$cleanup_done" -eq 0 ] || return 0
+    cleanup_done=1
+    [ -n "$tmp_dir" ] || return 0
+    rm -f -- "$tmp_dir/0.result" "$tmp_dir/1.result" "$tmp_dir/2.result" \
+      "$tmp_dir/0.log" "$tmp_dir/1.log" "$tmp_dir/2.log" || true
+    rmdir -- "$tmp_dir" 2>/dev/null || true
+  }
+  stop_node_prep_workers() { # <signal> <exit-status>
+    local signal_name="$1" exit_status="$2" i pid
+    # Prevent a second signal or EXIT from interrupting/re-entering cleanup while
+    # children are reaped.  EXIT is cleared because cleanup is called explicitly.
+    trap - EXIT
+    trap '' HUP INT TERM
+    for i in "${!pids[@]}"; do
+      [ "${worker_pending[$i]:-0}" -eq 1 ] || continue
+      pid="${pids[$i]}"
+      kill -s "$signal_name" "$pid" 2>/dev/null || true
+    done
+    # Non-interactive Bash jobs may inherit SIGINT as ignored.  Preserve the
+    # original notification above, then use TERM as the cleanup signal so wait
+    # cannot hang forever on an interrupt-ignoring worker.
+    if [ "$signal_name" != TERM ]; then
+      for i in "${!pids[@]}"; do
+        [ "${worker_pending[$i]:-0}" -eq 1 ] || continue
+        kill -s TERM "${pids[$i]}" 2>/dev/null || true
+      done
+    fi
+    for i in "${!pids[@]}"; do
+      [ "${worker_pending[$i]:-0}" -eq 1 ] || continue
+      pid="${pids[$i]}"
+      wait "$pid" 2>/dev/null || true
+      worker_pending[$i]=0
+    done
+    cleanup_node_prep_tmp
+    exit "$exit_status"
+  }
+  record_node_prep_signal() { # <signal> <exit-status>
+    [ -n "$interrupted_signal" ] && return 0
+    interrupted_signal="$1"
+    interrupted_status="$2"
+  }
+  # Install cleanup/termination handlers before the first fallible operation so
+  # a signal cannot strand a successfully-created scratch directory.
+  trap cleanup_node_prep_tmp EXIT
+  trap 'stop_node_prep_workers HUP 129' HUP
+  trap 'stop_node_prep_workers INT 130' INT
+  trap 'stop_node_prep_workers TERM 143' TERM
+  case "${CKA_REFRESH_PRELOAD_IMAGES:-0}" in
+    0|1) ;;
+    *) warn "CKA_REFRESH_PRELOAD_IMAGES는 0 또는 1이어야 합니다." >&2; return 1 ;;
+  esac
+  _cluster_capture_verified_inventory || return 1
+  # TMPDIR is caller-controlled.  Keep lifecycle scratch data under the fixed
+  # system temporary parent; mktemp creates the leaf directory with mode 0700.
+  umask 077
+  tmp_dir="$(mktemp -d /tmp/cka-node-prep.XXXXXX)" || return 1
+  # During `worker & pid=$!`, defer termination until the just-started PID has
+  # been recorded.  This closes the signal window between launch and assignment.
+  trap 'record_node_prep_signal HUP 129' HUP
+  trap 'record_node_prep_signal INT 130' INT
+  trap 'record_node_prep_signal TERM 143' TERM
+
+  for i in 0 1 2; do
+    if [ -n "$interrupted_signal" ]; then
+      stop_node_prep_workers "$interrupted_signal" "$interrupted_status"
+    fi
+    result_files[$i]="$tmp_dir/$i.result"
+    log_files[$i]="$tmp_dir/$i.log"
+    _prepare_cluster_node_one "${CKA_VERIFIED_CLUSTER_IDS[$i]}" \
+      "${CKA_VERIFIED_CLUSTER_NAMES[$i]}" "$@" \
+      >"${result_files[$i]}" 2>"${log_files[$i]}" &
+    pids[$i]=$!
+    worker_pending[$i]=1
+    if [ -n "$interrupted_signal" ]; then
+      stop_node_prep_workers "$interrupted_signal" "$interrupted_status"
+    fi
+  done
+  trap 'stop_node_prep_workers HUP 129' HUP
+  trap 'stop_node_prep_workers INT 130' INT
+  trap 'stop_node_prep_workers TERM 143' TERM
+  if [ -n "$interrupted_signal" ]; then
+    stop_node_prep_workers "$interrupted_signal" "$interrupted_status"
+  fi
+
+  # Bash의 wait는 마지막으로 기다린 PID의 상태만 대신 반환하지 않도록 각 PID를
+  # 따로 수집한다. 한 worker가 실패해도 나머지 두 worker는 반드시 reap한다.
+  for i in 0 1 2; do
+    wait "${pids[$i]}" || worker_failed=1
+    worker_pending[$i]=0
+    if [ -s "${log_files[$i]}" ]; then
+      while IFS= read -r line; do printf '%s\n' "$line" >&2; done < "${log_files[$i]}"
+    fi
+    if ! IFS='|' read -r pull installed editor_failed extra < "${result_files[$i]}"; then
+      worker_failed=1
+      continue
+    fi
+    [[ "$pull" =~ ^[0-9]+$ ]] && [[ "$installed" =~ ^[0-9]+$ ]] \
+      && [[ "$editor_failed" =~ ^[0-9]+$ ]] && [ -z "${extra:-}" ] || {
+        worker_failed=1
+        continue
+      }
+    total_pull=$((total_pull + pull))
+    total_installed=$((total_installed + installed))
+    total_editor_failed=$((total_editor_failed + editor_failed))
+  done
+  # A worker only performs non-fatal cache/editor preparation.  After all workers
+  # are reaped, require the exact sealed node generation to still be present.
+  _cluster_reverify_sealed_inventory || worker_failed=1
+  printf '%s|%s|%s' "$total_pull" "$total_installed" "$total_editor_failed"
+  [ "$worker_failed" -eq 0 ]
+)
+
+# 모든 노드에 vi가 있으면 0(정상). 이름 대신 검증된 immutable ID만 사용한다.
 node_editors_ok() {
-  local node
-  for node in $(cka_node_names); do
-    docker exec "$node" sh -c 'command -v vi >/dev/null 2>&1' || return 1
+  local id
+  _cluster_capture_verified_inventory >/dev/null 2>&1 || return 1
+  for id in "${CKA_VERIFIED_CLUSTER_IDS[@]}"; do
+    docker exec "$id" sh -c 'command -v vi >/dev/null 2>&1' 2>/dev/null || return 1
   done
 }
 
-# 편집기가 없는 노드에만 vim·nano 설치. 실제로 설치한 노드 수를 echo(멱등).
+# 편집기가 없는 노드에만 병렬 설치. 실제로 설치한 노드 수를 echo(멱등).
 install_node_editors() {
-  local node repaired=0
-  for node in $(cka_node_names); do
-    docker exec "$node" sh -c 'command -v vi >/dev/null 2>&1' 2>/dev/null && continue
-    if docker exec "$node" sh -c \
-        'apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y vim nano >/dev/null 2>&1'; then
-      repaired=$((repaired + 1))
-    else
-      warn "$node 편집기 설치 실패 (네트워크 확인). 노드에서 sed/docker cp로 대체 가능." >&2
-    fi
-  done
-  printf '%s' "$repaired"
+  local summary pull_failures repaired failed extra
+  if ! summary="$(prepare_cluster_nodes)"; then
+    warn "검증된 KIND 노드에서 편집기 설치 작업을 시작하지 못했습니다." >&2
+    printf '0'
+    return 0
+  fi
+  IFS='|' read -r pull_failures repaired failed extra <<< "$summary"
+  printf '%s' "${repaired:-0}"
 }
 
 # ── 노드 etcdctl/etcdutl (실전과 동일한 etcd 작업 환경) ──────────
@@ -749,31 +904,63 @@ CKA_CP_NODE_SUFFIX="control-plane"
 
 cka_cp_node() { printf '%s' "${CKA_CLUSTER_NAME}-${CKA_CP_NODE_SUFFIX}"; }
 
-node_etcdctl_ok() {
-  docker exec "$(cka_cp_node)" sh -c \
+_node_etcdctl_ok_by_id() { # <verified-control-plane-full-id>
+  local node_id="$1"
+  _cluster_docker_id_valid "$node_id" || return 1
+  docker exec "$node_id" sh -c \
     'command -v etcd >/dev/null 2>&1 && command -v etcdctl >/dev/null 2>&1 && command -v etcdutl >/dev/null 2>&1' 2>/dev/null
+}
+
+node_etcdctl_ok() {
+  local node_id
+  _cluster_capture_verified_inventory >/dev/null 2>&1 || return 1
+  [ "${CKA_VERIFIED_CLUSTER_STATES[0]:-}" = running ] || return 1
+  node_id="${CKA_VERIFIED_CLUSTER_IDS[0]:-}"
+  _node_etcdctl_ok_by_id "$node_id"
 }
 
 # control plane 노드에 etcdctl·etcdutl 설치 (멱등). 설치했으면 0, 이미 있으면 1.
 install_node_etcdctl() {
-  local node container_id container_pid
-  node="$(cka_cp_node)"
-  node_etcdctl_ok && return 1
+  local node node_id container_id container_pid
+  _cluster_capture_verified_inventory || {
+    warn "control plane 노드 identity를 검증하지 못해 etcd 도구를 설치하지 않습니다." >&2
+    return 1
+  }
+  [ "${CKA_VERIFIED_CLUSTER_STATES[0]:-}" = running ] || {
+    warn "control plane 노드가 running 상태가 아니어서 etcd 도구를 설치하지 않습니다." >&2
+    return 1
+  }
+  node="${CKA_VERIFIED_CLUSTER_NAMES[0]}"
+  node_id="${CKA_VERIFIED_CLUSTER_IDS[0]}"
+  _cluster_docker_id_valid "$node_id" || {
+    warn "control plane 노드의 full container ID가 유효하지 않아 etcd 도구를 설치하지 않습니다." >&2
+    return 1
+  }
+  _node_etcdctl_ok_by_id "$node_id" && return 1
 
-  container_id="$(docker exec "$node" crictl ps -q \
+  container_id="$(docker exec "$node_id" crictl ps -q \
     --label io.kubernetes.container.name=etcd 2>/dev/null)"
   [[ "$container_id" =~ ^[0-9a-f]{64}$ ]] || {
     warn "$node 의 실행 중인 etcd 컨테이너를 하나로 식별하지 못했습니다." >&2
     return 1
   }
-  container_pid="$(docker exec "$node" crictl inspect -o go-template \
+  container_pid="$(docker exec "$node_id" crictl inspect -o go-template \
     --template '{{.info.pid}}' "$container_id" 2>/dev/null)"
   [[ "$container_pid" =~ ^[1-9][0-9]*$ ]] || {
     warn "$node 의 etcd 컨테이너 PID를 확인하지 못했습니다." >&2
     return 1
   }
 
-  docker exec "$node" sh -c "
+  # Discovery above is read-only.  Reverify the sealed inventory immediately
+  # before the first mutation; the mutation itself targets only the captured ID.
+  _cluster_reverify_sealed_inventory || {
+    warn "$node identity가 설치 준비 중 변경되어 etcd 도구를 설치하지 않습니다." >&2
+    return 1
+  }
+  [ "${CKA_VERIFIED_CLUSTER_IDS[0]}" = "$node_id" ] \
+    && [ "${CKA_VERIFIED_CLUSTER_STATES[0]}" = running ] || return 1
+
+  docker exec "$node_id" sh -c "
     set -e
     test -x '/proc/$container_pid/root/usr/local/bin/etcd'
     test -x '/proc/$container_pid/root/usr/local/bin/etcdctl'
@@ -785,7 +972,10 @@ install_node_etcdctl() {
     warn "$node 에 etcdctl·etcdutl 설치 실패" >&2
     return 1
   }
-  node_etcdctl_ok || return 1
+  _cluster_reverify_sealed_inventory || return 1
+  [ "${CKA_VERIFIED_CLUSTER_IDS[0]}" = "$node_id" ] \
+    && [ "${CKA_VERIFIED_CLUSTER_STATES[0]}" = running ] || return 1
+  _node_etcdctl_ok_by_id "$node_id" || return 1
   return 0
 }
 

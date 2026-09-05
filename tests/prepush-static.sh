@@ -27,6 +27,8 @@ run "grader contract" bash tests/contract-test.sh
 run "mock exam runner contract" bash tests/exam-runner-test.sh
 run "question runtime contract" bash tests/question-runtime-contract-test.sh
 run "shared cluster recovery contract" bash tests/cluster-recovery-contract-test.sh
+run "cluster setup fast-path contract" bash tests/setup-cluster-fastpath-test.sh
+run "addon health contract" bash tests/addon-health-contract-test.sh
 run "ts-13 generation recovery contract" bash tests/ts13-generation-contract-test.sh
 run "kubeadm cell contract" bash tests/kubeadm-cell-contract-test.sh
 run "operator and Gateway contract" bash tests/operator-gateway-contract-test.sh

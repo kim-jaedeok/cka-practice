@@ -12,7 +12,20 @@
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.6.0}"
 METRICS_SERVER_URL="${METRICS_SERVER_URL:-https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml}"
 INGRESS_NGINX_URL="${INGRESS_NGINX_URL:-https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml}"
+INGRESS_NGINX_CONTROLLER_IMAGE="${INGRESS_NGINX_CONTROLLER_IMAGE:-}"
 CLOUD_PROVIDER_KIND_BIN="${CLOUD_PROVIDER_KIND_BIN:-$HOME/.local/bin/cloud-provider-kind}"
+GATEWAY_API_STANDARD_CRDS=(
+  backendtlspolicies.gateway.networking.k8s.io
+  gatewayclasses.gateway.networking.k8s.io
+  gateways.gateway.networking.k8s.io
+  grpcroutes.gateway.networking.k8s.io
+  httproutes.gateway.networking.k8s.io
+  listenersets.gateway.networking.k8s.io
+  referencegrants.gateway.networking.k8s.io
+  tcproutes.gateway.networking.k8s.io
+  tlsroutes.gateway.networking.k8s.io
+  udproutes.gateway.networking.k8s.io
+)
 # The provider is a host-global process which watches every KIND cluster.  Keep
 # its mutable ownership state on the native Linux filesystem, not below the repo
 # on /mnt/c where DrvFS may ignore chmod metadata.
@@ -205,14 +218,49 @@ _cloud_provider_kind_record() { # prints pid|start-time|boot-id|version|binary-s
   printf '%s' "$record"
 }
 
+_cloud_provider_kind_parse_proc_stat() { # <raw-/proc/PID/stat>; prints state|start-time
+  local stat_text="${1:-}" suffix state start
+  local -a fields=()
+  # comm (field 2) is parenthesized and may itself contain spaces or ')'. Strip
+  # through the final ") " rather than splitting the complete record on spaces.
+  suffix="${stat_text##*) }"
+  [ -n "$stat_text" ] && [ "$suffix" != "$stat_text" ] || return 1
+  read -r -a fields <<< "$suffix"
+  [ "${#fields[@]}" -ge 20 ] || return 1
+  state="${fields[0]}"
+  start="${fields[19]}"
+  [[ "$state" =~ ^[A-Za-z]$ ]] && [[ "$start" =~ ^[1-9][0-9]*$ ]] || return 1
+  printf '%s|%s' "$state" "$start"
+}
+
+_cloud_provider_kind_proc_stat() { # <pid>; prints state|start-time
+  local pid="${1:-}" stat_text
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  [ -r "/proc/$pid/stat" ] || return 1
+  stat_text="$(< "/proc/$pid/stat")" || return 1
+  _cloud_provider_kind_parse_proc_stat "$stat_text"
+}
+
+_cloud_provider_kind_process_state_healthy() {
+  # A userspace controller normally runs or sleeps. D is still a live task
+  # waiting in the kernel; stopped, traced, dead, zombie, and unknown states
+  # must never satisfy readiness based on an old log entry.
+  case "${1:-}" in
+    R|S|D) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 _cloud_provider_kind_process_owned() {
-  local record pid expected_start record_boot record_version record_sha current_start owner exe first_arg args
+  local record pid expected_start record_boot record_version record_sha proc_state state current_start
+  local owner exe first_arg args
   record="$(_cloud_provider_kind_record)" || return 1
   IFS='|' read -r pid expected_start record_boot record_version record_sha <<< "$record"
   [ "$record_boot" = "$(_cloud_provider_kind_boot_id)" ] || return 1
   kill -0 "$pid" 2>/dev/null || return 1
   [ -r "/proc/$pid/stat" ] && [ -r "/proc/$pid/cmdline" ] || return 1
-  current_start="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
+  proc_state="$(_cloud_provider_kind_proc_stat "$pid")" || return 1
+  IFS='|' read -r state current_start <<< "$proc_state"
   [ "$current_start" = "$expected_start" ] || return 1
   owner="$(stat -c '%u' "/proc/$pid" 2>/dev/null || true)"
   [ "$owner" = "$(id -u)" ] || return 1
@@ -228,9 +276,20 @@ _cloud_provider_kind_process_owned() {
   printf '%s\n' "$args" | grep -Fxq -- 'disabled' || return 1
 }
 
+_cloud_provider_kind_process_runtime_healthy() {
+  local record pid expected_start boot_id version sha proc_state state current_start
+  record="$(_cloud_provider_kind_record)" || return 1
+  IFS='|' read -r pid expected_start boot_id version sha <<< "$record"
+  proc_state="$(_cloud_provider_kind_proc_stat "$pid")" || return 1
+  IFS='|' read -r state current_start <<< "$proc_state"
+  [ "$current_start" = "$expected_start" ] \
+    && _cloud_provider_kind_process_state_healthy "$state"
+}
+
 _cloud_provider_kind_controller_ready() {
   local server
   _cloud_provider_kind_process_owned || return 1
+  _cloud_provider_kind_process_runtime_healthy || return 1
   [ -f "$CLOUD_PROVIDER_KIND_LOG_FILE" ] \
     && [ ! -L "$CLOUD_PROVIDER_KIND_LOG_FILE" ] || return 1
   server="$(kubectl config view --context "$CKA_CONTEXT" --minify \
@@ -858,24 +917,86 @@ cloud_provider_kind_stop_if_no_clusters() {
   cloud_provider_kind_stop
 }
 
-addon_deploy_ready_with_image() { # <ns> <deployment> <exact-image|prefix*>
-  local ns="$1" deploy="$2" expected="$3" state image generation observed desired ready
+addon_deploy_ready_with_image() { # <ns> <deployment> <exact-image>
+  local ns="$1" deploy="$2" expected="$3" state image
+  local generation observed desired replicas updated ready available unavailable
   state="$(kctx -n "$ns" get deploy "$deploy" \
-    -o jsonpath='{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.spec.replicas}{"|"}{.status.readyReplicas}{"|"}{.spec.template.spec.containers[0].image}' \
+    -o jsonpath='{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.spec.replicas}{"|"}{.status.replicas}{"|"}{.status.updatedReplicas}{"|"}{.status.readyReplicas}{"|"}{.status.availableReplicas}{"|"}{.status.unavailableReplicas}{"|"}{.spec.template.spec.containers[0].image}' \
     2>/dev/null)" || return 1
-  IFS='|' read -r generation observed desired ready image <<< "$state"
+  IFS='|' read -r generation observed desired replicas updated ready available unavailable image <<< "$state"
+  unavailable="${unavailable:-0}"
+  [[ "$generation" =~ ^[1-9][0-9]*$ ]] \
+    && [[ "$observed" =~ ^[0-9]+$ ]] \
+    && [[ "$desired" =~ ^[1-9][0-9]*$ ]] \
+    && [[ "$replicas" =~ ^[0-9]+$ ]] \
+    && [[ "$updated" =~ ^[0-9]+$ ]] \
+    && [[ "$ready" =~ ^[0-9]+$ ]] \
+    && [[ "$available" =~ ^[0-9]+$ ]] \
+    && [[ "$unavailable" =~ ^[0-9]+$ ]] || return 1
+  [ "$observed" -ge "$generation" ] \
+    && [ "$replicas" -eq "$desired" ] \
+    && [ "$updated" -eq "$desired" ] \
+    && [ "$ready" -eq "$desired" ] \
+    && [ "$available" -eq "$desired" ] \
+    && [ "$unavailable" -eq 0 ] || return 1
+  [ "$image" = "$expected" ]
+}
+
+# ── Calico CNI ──────────────────────────────────────────────────
+# setup-cluster.sh의 재실행 fast path에서만 사용한다. DaemonSet/Deployment가
+# 현재 generation을 모두 반영했고 lock 버전 이미지를 쓰는 경우에만 apply를 생략한다.
+addon_ok_calico() {
+  local state generation observed desired updated ready misscheduled expected_nodes
+  local node_image cni_image upgrade_image bootstrap_image
+  local -a expected_node_names=()
+  state="$(kctx -n kube-system get daemonset calico-node -o jsonpath=\
+'{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.status.desiredNumberScheduled}{"|"}{.status.updatedNumberScheduled}{"|"}{.status.numberReady}{"|"}{.status.numberMisscheduled}{"|"}{.spec.template.spec.containers[?(@.name=="calico-node")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="install-cni")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="upgrade-ipam")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="ebpf-bootstrap")].image}' \
+    2>/dev/null)" || return 1
+  IFS='|' read -r generation observed desired updated ready misscheduled \
+    node_image cni_image upgrade_image bootstrap_image <<< "$state"
+  mapfile -t expected_node_names < <(cka_node_names)
+  expected_nodes="${#expected_node_names[@]}"
+  [ "$expected_nodes" -gt 0 ] || return 1
   [ -n "$generation" ] && [ "$observed" = "$generation" ] \
-    && [ "${desired:-0}" -gt 0 ] && [ "${ready:-0}" = "$desired" ] || return 1
-  case "$expected" in
-    *\*) [[ "$image" == ${expected%\*}* ]] ;;
-    *) [ "$image" = "$expected" ] ;;
-  esac
+    && [ "${desired:-0}" = "$expected_nodes" ] \
+    && [ "${updated:-0}" = "$desired" ] \
+    && [ "${ready:-0}" = "$desired" ] \
+    && [ "${misscheduled:-0}" -eq 0 ] \
+    && [ "$node_image" = "quay.io/calico/node:$CALICO_VERSION" ] \
+    && [ "$cni_image" = "quay.io/calico/cni:$CALICO_VERSION" ] \
+    && [ "$upgrade_image" = "quay.io/calico/cni:$CALICO_VERSION" ] \
+    && [ "$bootstrap_image" = "quay.io/calico/node:$CALICO_VERSION" ] \
+    && addon_deploy_ready_with_image kube-system calico-kube-controllers \
+      "quay.io/calico/kube-controllers:$CALICO_VERSION"
+}
+
+addon_install_calico() {
+  kctx apply -f "$CALICO_MANIFEST_URL"
+}
+
+addon_wait_calico() {
+  kctx -n kube-system rollout status daemonset/calico-node --timeout=300s \
+    >/dev/null 2>&1 \
+    && kctx -n kube-system rollout status deployment/calico-kube-controllers --timeout=180s \
+      >/dev/null 2>&1 \
+    && kctx wait --for=condition=Ready nodes --all --timeout=300s >/dev/null 2>&1 \
+    && addon_ok_calico
 }
 
 # ── metrics-server ───────────────────────────────────────────────
 addon_ok_metrics_server() {
+  local args api_service
   addon_deploy_ready_with_image kube-system metrics-server \
-    "registry.k8s.io/metrics-server/metrics-server:$METRICS_SERVER_VERSION"
+    "registry.k8s.io/metrics-server/metrics-server:$METRICS_SERVER_VERSION" \
+    || return 1
+  args="$(kctx -n kube-system get deployment metrics-server \
+    -o jsonpath='{range .spec.template.spec.containers[0].args[*]}{@}{"\n"}{end}' \
+    2>/dev/null)" || return 1
+  grep -Fxq -- '--kubelet-insecure-tls' <<< "$args" || return 1
+  api_service="$(kctx get apiservice v1beta1.metrics.k8s.io \
+    -o jsonpath='{.spec.service.namespace}{"|"}{.spec.service.name}{"|"}{.status.conditions[?(@.type=="Available")].status}' \
+    2>/dev/null)" || return 1
+  [ "$api_service" = 'kube-system|metrics-server|True' ]
 }
 addon_install_metrics_server() {
   kctx apply -f "$METRICS_SERVER_URL" || return 1
@@ -888,20 +1009,128 @@ addon_install_metrics_server() {
   fi
 }
 addon_wait_metrics_server() {
-  kctx -n kube-system rollout status deploy/metrics-server --timeout=180s >/dev/null 2>&1 \
-    && addon_ok_metrics_server
+  local i
+  kctx -n kube-system rollout status deploy/metrics-server --timeout=180s \
+    >/dev/null 2>&1 || return 1
+  for i in $(seq 1 60); do
+    addon_ok_metrics_server && return 0
+    if [ "$i" -lt 60 ]; then sleep 1; fi
+  done
+  return 1
 }
 
 # ── ingress-nginx ────────────────────────────────────────────────
 # IngressClass와 컨트롤러 Deployment가 모두 있어야 정상으로 본다.
+_ingress_admission_service_ok() {
+  local state
+  state="$(kctx -n ingress-nginx get service ingress-nginx-controller-admission \
+    -o go-template='{{.spec.type}}|{{index .spec.selector "app.kubernetes.io/component"}}|{{range .spec.ports}}{{if eq .name "https-webhook"}}{{.port}}|{{.targetPort}}{{end}}{{end}}' \
+    2>/dev/null)" || return 1
+  [ "$state" = 'ClusterIP|controller|443|webhook' ]
+}
+
+_ingress_admission_webhook_ok() {
+  local state namespace service path port failure_policy ca_bundle extra
+  state="$(kctx get validatingwebhookconfiguration ingress-nginx-admission -o jsonpath=\
+'{range .webhooks[?(@.name=="validate.nginx.ingress.kubernetes.io")]}{.clientConfig.service.namespace}{"|"}{.clientConfig.service.name}{"|"}{.clientConfig.service.path}{"|"}{.clientConfig.service.port}{"|"}{.failurePolicy}{"|"}{.clientConfig.caBundle}{"\n"}{end}' \
+    2>/dev/null)" || return 1
+  [ -n "$state" ] && [[ "$state" != *$'\n'* ]] || return 1
+  IFS='|' read -r namespace service path port failure_policy ca_bundle extra <<< "$state"
+  [ -z "${extra:-}" ] \
+    && [ "$namespace" = ingress-nginx ] \
+    && [ "$service" = ingress-nginx-controller-admission ] \
+    && [ "$path" = /networking/v1/ingresses ] \
+    && [ "$port" = 443 ] \
+    && [ "$failure_policy" = Fail ] \
+    && [ -n "$ca_bundle" ]
+}
+
+_ingress_admission_secret_ok() {
+  local state ca cert key extra
+  state="$(kctx -n ingress-nginx get secret ingress-nginx-admission \
+    -o jsonpath='{.data.ca}{"|"}{.data.cert}{"|"}{.data.key}' \
+    2>/dev/null)" || return 1
+  IFS='|' read -r ca cert key extra <<< "$state"
+  [ -z "${extra:-}" ] && [ -n "$ca" ] && [ -n "$cert" ] && [ -n "$key" ]
+}
+
+_ingress_admission_ca_matches() {
+  local webhook_ca secret_ca
+  webhook_ca="$(kctx get validatingwebhookconfiguration ingress-nginx-admission \
+    -o go-template='{{range .webhooks}}{{if eq .name "validate.nginx.ingress.kubernetes.io"}}{{.clientConfig.caBundle}}{{end}}{{end}}' \
+    2>/dev/null)" || return 1
+  secret_ca="$(kctx -n ingress-nginx get secret ingress-nginx-admission \
+    -o go-template='{{index .data "ca"}}' 2>/dev/null)" || return 1
+  [ -n "$webhook_ca" ] && [ "$webhook_ca" = "$secret_ca" ]
+}
+
+_ingress_admission_ok() {
+  _ingress_admission_service_ok \
+    && _ingress_admission_webhook_ok \
+    && _ingress_admission_secret_ok \
+    && _ingress_admission_ca_matches
+}
+
+_ingress_admission_wait() {
+  local i
+  for i in $(seq 1 120); do
+    _ingress_admission_ok && return 0
+    if [ "$i" -lt 120 ]; then sleep 1; fi
+  done
+  return 1
+}
+
 addon_ok_ingress_nginx() {
-  kctx get ingressclass nginx >/dev/null 2>&1 \
+  local scheduling toleration
+  [ -n "$INGRESS_NGINX_CONTROLLER_IMAGE" ] || return 1
+  [ "$(kctx get ingressclass nginx -o jsonpath='{.spec.controller}' 2>/dev/null)" = \
+      k8s.io/ingress-nginx ] \
     && [ "$(kctx -n ingress-nginx get service ingress-nginx-controller \
       -o jsonpath='{.spec.type}' 2>/dev/null)" = ClusterIP ] \
     && addon_deploy_ready_with_image ingress-nginx ingress-nginx-controller \
-      "registry.k8s.io/ingress-nginx/controller:${INGRESS_NGINX_VERSION#controller-}*"
+      "$INGRESS_NGINX_CONTROLLER_IMAGE" \
+    || return 1
+  scheduling="$(kctx -n ingress-nginx get deployment ingress-nginx-controller \
+    -o go-template='{{index .spec.template.spec.nodeSelector "ingress-ready"}}|{{index .spec.template.spec.nodeSelector "kubernetes.io/os"}}' \
+    2>/dev/null)" || return 1
+  [ "$scheduling" = 'true|linux' ] || return 1
+  toleration="$(kctx -n ingress-nginx get deployment ingress-nginx-controller \
+    -o jsonpath='{range .spec.template.spec.tolerations[?(@.key=="node-role.kubernetes.io/control-plane")]}{.operator}{"|"}{.effect}{"\n"}{end}' \
+    2>/dev/null)" || return 1
+  grep -Fxq -- 'Exists|NoSchedule' <<< "$toleration" \
+    && _ingress_admission_ok
 }
 addon_install_ingress_nginx() {
+  local rerun_admission_jobs=0 reset_admission_secret=0
+  local admission_secret_ok=0 admission_webhook_ok=0
+  if kctx get namespace ingress-nginx >/dev/null 2>&1; then
+    if _ingress_admission_secret_ok; then
+      admission_secret_ok=1
+    else
+      reset_admission_secret=1
+      rerun_admission_jobs=1
+    fi
+    if _ingress_admission_webhook_ok; then
+      admission_webhook_ok=1
+    else
+      rerun_admission_jobs=1
+    fi
+    if [ "$admission_secret_ok" -eq 1 ] \
+        && [ "$admission_webhook_ok" -eq 1 ] \
+        && ! _ingress_admission_ca_matches; then
+      reset_admission_secret=1
+      rerun_admission_jobs=1
+    fi
+    if [ "$rerun_admission_jobs" -eq 1 ]; then
+      kctx -n ingress-nginx delete \
+        job/ingress-nginx-admission-create job/ingress-nginx-admission-patch \
+        --ignore-not-found=true --wait=true >/dev/null 2>&1 || return 1
+    fi
+    if [ "$reset_admission_secret" -eq 1 ]; then
+      kctx -n ingress-nginx delete secret/ingress-nginx-admission \
+        --ignore-not-found=true --wait=true >/dev/null 2>&1 || return 1
+    fi
+  fi
   kctx apply -f "$INGRESS_NGINX_URL" || return 1
   # 컨트롤러를 control-plane(ingress-ready, hostPort 80→호스트 8080 매핑 노드)에 고정.
   # 이 patch가 빠지면 IngressClass가 있어도 curl localhost:8080 실측이 실패한다.
@@ -916,20 +1145,57 @@ addon_install_ingress_nginx() {
   # Ingress controller Service는 내부 ClusterIP로 고정한다.
   kctx -n ingress-nginx patch service ingress-nginx-controller --type=merge \
     -p='{"spec":{"type":"ClusterIP"}}' >/dev/null 2>&1 || return 1
+  if [ "$rerun_admission_jobs" -eq 1 ]; then
+    # Both jobs use ttlSecondsAfterFinished=0, so observe their durable outputs
+    # instead of racing a wait against automatic Job deletion.
+    _ingress_admission_wait || return 1
+  fi
+  if [ "$reset_admission_secret" -eq 1 ]; then
+    # The controller reads the webhook key pair when its HTTPS server starts.
+    # Restart only when the managed key material was regenerated.
+    kctx -n ingress-nginx rollout restart deployment/ingress-nginx-controller \
+      >/dev/null 2>&1 || return 1
+  fi
 }
 addon_wait_ingress_nginx() {
   kctx -n ingress-nginx rollout status deploy/ingress-nginx-controller --timeout=300s \
-    >/dev/null 2>&1 && addon_ok_ingress_nginx
+    >/dev/null 2>&1 \
+    && _ingress_admission_wait \
+    && addon_ok_ingress_nginx
 }
 
 # ── Gateway API ──────────────────────────────────────────────────
 # CRD가 있어야 gatewayclass 리소스 타입이 존재하고, 그 위에 GatewayClass/nginx.
 addon_ok_gateway_api() {
+  local records name version channel established extra expected policy_state binding_state
+  local -A seen=()
   [ "$(kctx get gatewayclass nginx \
       -o jsonpath='{.spec.controllerName}' 2>/dev/null)" = \
-      example.com/nginx-gateway-controller ] \
-    && kctx get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1 \
-    && kctx get crd httproutes.gateway.networking.k8s.io >/dev/null 2>&1
+      example.com/nginx-gateway-controller ] || return 1
+  records="$(kctx get crd "${GATEWAY_API_STANDARD_CRDS[@]}" -o jsonpath=\
+'{range .items[*]}{.metadata.name}{"|"}{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}{"|"}{.metadata.annotations.gateway\.networking\.k8s\.io/channel}{"|"}{.status.conditions[?(@.type=="Established")].status}{"\n"}{end}' \
+    2>/dev/null)" || return 1
+  while IFS='|' read -r name version channel established extra; do
+    [ -n "$name" ] && [ -z "${extra:-}" ] \
+      && [ "$version" = "$GATEWAY_API_VERSION" ] \
+      && [ "$channel" = standard ] \
+      && [ "$established" = True ] || return 1
+    [ -z "${seen[$name]:-}" ] || return 1
+    seen[$name]=1
+  done <<< "$records"
+  [ "${#seen[@]}" -eq "${#GATEWAY_API_STANDARD_CRDS[@]}" ] || return 1
+  for expected in "${GATEWAY_API_STANDARD_CRDS[@]}"; do
+    [ "${seen[$expected]:-}" = 1 ] || return 1
+  done
+  policy_state="$(kctx get validatingadmissionpolicy safe-upgrades.gateway.networking.k8s.io \
+    -o go-template='{{index .metadata.annotations "gateway.networking.k8s.io/bundle-version"}}|{{index .metadata.annotations "gateway.networking.k8s.io/channel"}}|{{.spec.failurePolicy}}' \
+    2>/dev/null)" || return 1
+  [ "$policy_state" = "$GATEWAY_API_VERSION|standard|Fail" ] || return 1
+  binding_state="$(kctx get validatingadmissionpolicybinding safe-upgrades.gateway.networking.k8s.io \
+    -o go-template='{{index .metadata.annotations "gateway.networking.k8s.io/bundle-version"}}|{{index .metadata.annotations "gateway.networking.k8s.io/channel"}}|{{.spec.policyName}}|{{range .spec.validationActions}}{{.}}{{","}}{{end}}' \
+    2>/dev/null)" || return 1
+  [ "$binding_state" = \
+    "$GATEWAY_API_VERSION|standard|safe-upgrades.gateway.networking.k8s.io|Deny," ]
 }
 addon_install_gateway_api() {
   kctx apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$GATEWAY_API_VERSION/standard-install.yaml" \
@@ -944,11 +1210,23 @@ spec:
   controllerName: example.com/nginx-gateway-controller
 EOF
 }
-addon_wait_gateway_api() { addon_ok_gateway_api; }
+addon_wait_gateway_api() {
+  local i
+  for i in $(seq 1 60); do
+    addon_ok_gateway_api && return 0
+    if [ "$i" -lt 60 ]; then sleep 1; fi
+  done
+  return 1
+}
 
 # ── 채점용 상주 파드 ─────────────────────────────────────────────
 addon_ok_grader_client() {
-  addon_deploy_ready_with_image cka-system grader-client busybox:1.36
+  local state
+  addon_deploy_ready_with_image cka-system grader-client busybox:1.36 || return 1
+  state="$(kctx -n cka-system get deployment grader-client -o jsonpath=\
+'{.spec.selector.matchLabels.app}{"|"}{.spec.template.metadata.labels.app}{"|"}{.spec.template.spec.containers[0].name}{"|"}{range .spec.template.spec.containers[0].command[*]}{@}{" "}{end}' \
+    2>/dev/null)" || return 1
+  [ "$state" = 'grader-client|grader-client|client|sleep infinity ' ]
 }
 addon_install_grader_client() {
   kctx apply -f - >/dev/null <<'EOF'
