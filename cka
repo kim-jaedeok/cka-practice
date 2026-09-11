@@ -30,6 +30,7 @@ ${C_BLD}cka — CKA 시험 연습 CLI${C_RST}
   cka grade <id>           채점 (기준별 부분 점수)
   cka solution <id>        정답지 + 한국어 해설
   cka reset <id>           문제 환경 재설정 (다시 풀기)
+  cka init <id>            reset과 동일한 문제 초기화
   cka cleanup <id>         문제 환경 명시적 정리 (일회용 셀 포함)
   cka exam [status|question <n>|finish|abort]
                            모의고사 (17문제 / 2시간 / 성적표)
@@ -55,6 +56,9 @@ show_question() {
   printf '%s\n\n' "${C_BLD}═══════════════════════════════════════════════════════════════${C_RST}"
   cat "$qdir/question.md"
   printf '\n'
+  printf '연습 파일 작업 폴더: %s/%s\n' "$CKA_WORK_DIR" "$id"
+  printf '  cd %q\n' "$CKA_WORK_DIR/$id"
+  printf '문제 시작 후 저장소 루트에 새로 만든 파일도 reset/cleanup 및 cluster down/reset 시 정리됩니다.\n'
 }
 
 cmd_list() {
@@ -172,6 +176,10 @@ cmd_cluster_down() (
     || die "클러스터 삭제 전 LoadBalancer Service/container 정리에 실패했습니다."
   kind delete cluster --name "$CKA_CLUSTER_NAME" \
     || die "kind 클러스터 삭제에 실패했습니다."
+  workdir_clear_all \
+    || die "클러스터는 삭제됐지만 문제 작업 파일 정리에 실패했습니다."
+  practice_files cleanup-all \
+    || die "클러스터는 삭제됐지만 저장소의 연습 파일 정리에 실패했습니다."
   cloud_provider_kind_stop_if_no_clusters \
     || die "클러스터는 삭제됐지만 소유한 Cloud Provider KIND를 안전하게 종료하지 못했습니다."
 )
@@ -217,7 +225,7 @@ cmd_exam_ssh_entry() {
 infrastructure_gate_mode() { # <cka argv...>; prints wait|nowait|none
   local command="${1:-help}" action="${2:-}"
   case "$command" in
-    start|grade|solution|reset|cleanup) printf '%s\n' nowait ;;
+    start|grade|solution|reset|init|cleanup) printf '%s\n' nowait ;;
     cluster)
       case "${action:-status}" in
         down) printf '%s\n' wait ;;
@@ -306,7 +314,7 @@ case "$cmd" in
     cat "$qdir/answer.md"
     printf '\n'
     ;;
-  reset)
+  reset|init)
     [ $# -ge 1 ] || die "사용법: cka reset <id>"
     deny_if_exam_locked
     qdir="$(qdir_of "$1")" || die "존재하지 않는 문제: $1"
@@ -314,6 +322,8 @@ case "$cmd" in
     question_runtime_reset "$1" "$qdir" || die "재설정 실패: $1"
     state_set "$1" started
     ok "재설정 완료. 'cka question $1' 로 지문을 다시 볼 수 있습니다."
+    printf '연습 파일 작업 폴더: %s/%s\n' "$CKA_WORK_DIR" "$1"
+    printf '저장소 루트에 새로 만드는 파일도 이번 문제의 정리 대상에 포함됩니다.\n'
     ;;
   cleanup)
     [ $# -ge 1 ] || die "사용법: cka cleanup <id>"

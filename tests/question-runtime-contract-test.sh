@@ -148,6 +148,9 @@ record() { printf '%s\n' "$*" >> "$LOG"; }
 require_cluster() { record require_cluster; return "${REQUIRE_CLUSTER_RC:-0}"; }
 require_cluster_readonly() { record require_cluster_readonly; return "${REQUIRE_CLUSTER_READONLY_RC:-0}"; }
 cleanup_question() { record "cleanup_question:$1"; }
+workdir_prepare() { return 0; }
+workdir_clear() { return 0; }
+practice_files() { return 0; }
 cell_prepare() { record "cell_prepare:$1:$2"; return "${CELL_PREPARE_RC:-0}"; }
 cell_activate() { record "cell_activate:$1:$2"; return "${CELL_ACTIVATE_RC:-0}"; }
 cell_cleanup() { record "cell_cleanup:$1:$2"; return "${CELL_CLEANUP_RC:-0}"; }
@@ -656,7 +659,7 @@ public_cli_creators_share_the_infrastructure_gate() {
   exam_body="$(sed -n '/^cmd_exam_entry()/,/^}/p' "$ROOT/cka")" || return 1
   ssh_body="$(sed -n '/^cmd_exam_ssh_entry()/,/^}/p' "$ROOT/cka")" || return 1
   wrapper="$(sed -n '/^# Re-exec mutating public commands/,/^cmd=/p' "$ROOT/cka")" || return 1
-  grep -Fq 'start|grade|solution|reset|cleanup) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
+  grep -Fq 'start|grade|solution|reset|init|cleanup) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
     && grep -Fq 'up|reset|doctor) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
     && grep -Fq 'start) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
     && grep -Fq 'prepare) printf '\''%s\n'\'' nowait' <<<"$gate_body" \

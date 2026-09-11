@@ -26,6 +26,7 @@ run "Python unit tests" \
 run "grader contract" bash tests/contract-test.sh
 run "mock exam runner contract" bash tests/exam-runner-test.sh
 run "question runtime contract" bash tests/question-runtime-contract-test.sh
+run "practice file cleanup" bash tests/workdir-cleanup-test.sh
 run "shared cluster recovery contract" bash tests/cluster-recovery-contract-test.sh
 run "cluster setup fast-path contract" bash tests/setup-cluster-fastpath-test.sh
 run "addon health contract" bash tests/addon-health-contract-test.sh

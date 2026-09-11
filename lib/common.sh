@@ -1214,10 +1214,37 @@ workdir_clear() { # <qid>
 }
 
 workdir_reset() { # <qid>
-  local id="$1" root
+  local id="$1"
   workdir_clear "$id" || return 1
+  workdir_prepare "$id"
+}
+
+workdir_prepare() { # <qid>; preserve setup-provided files
+  local id="$1" root target
+  [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
   root="$(workdir_root_resolve)" || return 1
-  mkdir -p -- "$root/$id"
+  target="$root/$id"
+  [ ! -L "$target" ] || return 1
+  mkdir -p -- "$target"
+}
+
+# Cluster cleanup owns question directories, not arbitrary files in the root.
+workdir_clear_all() {
+  local root target id failed=0
+  root="$(workdir_root_resolve)" || return 1
+  for target in "$root"/*; do
+    id="${target##*/}"
+    [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || continue
+    workdir_clear "$id" || failed=1
+  done
+  return "$failed"
+}
+
+# Track root-level practice files independently from the answer work directory.
+# The public command's infrastructure lock serializes journal updates.
+practice_files() {
+  python3 "$CKA_ROOT/lib/practice-files.py" \
+    --root "$CKA_ROOT" --state "$CKA_STATE_DIR" "$@"
 }
 
 wait_deploy() { # wait_deploy <ns> <name> [timeout]

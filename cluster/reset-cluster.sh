@@ -4,12 +4,19 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/cell.sh"
 
 warn "kind 클러스터 '$CKA_CLUSTER_NAME' 를 삭제하고 다시 만듭니다."
+cell_cleanup_all_managed \
+  || die "관리 중인 일회용 문제 환경을 안전하게 정리하지 못해 재생성을 중단합니다."
 cloud_provider_kind_cleanup_cluster_loadbalancers "$CKA_CLUSTER_NAME" \
   || die "재생성 전 LoadBalancer Service/container 정리에 실패했습니다."
 kind delete cluster --name "$CKA_CLUSTER_NAME" \
   || die "kind 클러스터 삭제에 실패했습니다."
+workdir_clear_all \
+  || die "이전 클러스터의 문제 작업 파일 정리에 실패했습니다."
+practice_files cleanup-all \
+  || die "이전 클러스터의 저장소 연습 파일 정리에 실패했습니다."
 state_subdir_clear status \
   || die "문제 상태 디렉터리를 안전하게 정리하지 못했습니다."
 state_subdir_clear exam \

@@ -216,6 +216,8 @@ question_runtime_start() { # <qid> <question-dir>
   environment="$(question_runtime_environment "$qdir")" || return 1
   mode="$(meta_get "$qdir" mode)" || return 1
 
+  # Seal the previous session before setup can change the active environment.
+  practice_files pause || return 1
   case "$environment" in
     shared-kind)
       # Individual recovery drills must be able to repair the exact broken
@@ -227,7 +229,7 @@ question_runtime_start() { # <qid> <question-dir>
       # A previous disposable lab may still exist, but shared practice must
       # never let its ssh aliases continue targeting that cell.
       _question_runtime_load_cell_library || return 1
-      cell_selection_clear_current
+      cell_selection_clear_current || return 1
       ;;
     kubeadm-bootstrap|kubeadm-ha|kubeadm-upgrade)
       _question_runtime_load_cell_library || return 1
@@ -271,6 +273,8 @@ question_runtime_start() { # <qid> <question-dir>
       fi
       ;;
   esac
+  workdir_prepare "$qid" || return 1
+  practice_files start "$qid"
 }
 
 question_runtime_grade() { # <qid> <question-dir>
@@ -287,7 +291,7 @@ question_runtime_grade() { # <qid> <question-dir>
   _question_runtime_run_script "$qdir" grade.sh
 }
 
-question_runtime_cleanup() { # <qid> <question-dir>
+_question_runtime_cleanup_environment() { # <qid> <question-dir>
   local qid="$1" qdir="$2" environment mode
   environment="$(question_runtime_environment "$qdir")" || return 1
   mode="$(meta_get "$qdir" mode)" || return 1
@@ -312,6 +316,12 @@ question_runtime_cleanup() { # <qid> <question-dir>
   fi
 }
 
+question_runtime_cleanup() { # <qid> <question-dir>
+  _question_runtime_cleanup_environment "$1" "$2" || return $?
+  workdir_clear "$1" || return 1
+  practice_files cleanup "$1"
+}
+
 question_runtime_reset() { # <qid> <question-dir>
   local qid="$1" qdir="$2" environment
   environment="$(question_runtime_environment "$qdir")" || return 1
@@ -320,5 +330,6 @@ question_runtime_reset() { # <qid> <question-dir>
   elif [ "$environment" != shared-kind ]; then
     return 1
   fi
+  workdir_clear "$qid" || return 1
   question_runtime_start "$qid" "$qdir"
 }
