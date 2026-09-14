@@ -4,7 +4,7 @@ CKA 수행형 시험을 준비하기 위한 로컬 연습 시스템.
 [kind (Kubernetes IN Docker)](https://kind.sigs.k8s.io/) 로컬 클러스터에 문제 상황을 자동 구성하고, 영어 지문으로 풀이한 뒤
 클러스터 상태 기반 자동 채점과 모의고사를 실행한다.
 
-- 문제 52개 (Cluster Architecture 13 / Workloads 8 / Services & Networking 10 / Storage 6 / Troubleshooting 15)
+- 문제 53개 (Cluster Architecture 13 / Workloads 9 / Services & Networking 10 / Storage 6 / Troubleshooting 15)
 - 문제별 정답지 + 한국어 해설 (`answer.md`)
 - 모의고사 모드: seed 기반의 catalog상 호환 가능한 17문항 form + 2시간 타이머 + 성적표
 - 공식 v1.35 역량과 로컬 커버리지를 추적하는 [`curriculum/cka-v1.35.yaml`](curriculum/cka-v1.35.yaml)
@@ -85,7 +85,7 @@ CRI (Container Runtime Interface) 캐시에 있는 이미지는 다시 pull하�
 ## 문제 풀이 흐름
 
 ```bash
-cka list                  # 52문제 목록 + 진행 상태
+cka list                  # 53문제 목록 + 진행 상태
 cka start ts-03           # 문제 환경 구성 + 영어 지문 표시
 # ... kubectl로 직접 풀이 ...
 cka grade ts-03           # 자동 채점: 기준별 ✓/✗ + 부분 점수
@@ -199,7 +199,7 @@ cka exam abort            # 중단
 - 제한시간이 지난 run은 점수가 66% 이상이어도 합격 처리하지 않는다. 다만 현재 구현은
   다음 `cka exam status/question/finish` 호출 때 deadline을 확인해 봉인하며, 이미 열려 있는
   raw 터미널 프로세스를 강제로 종료하지는 않는다.
-- 52문제 중 40문제가 공유 모의고사 후보이다. `ts-05`, `ts-12`~`ts-15`는 공유 상태를
+- 53문제 중 41문제가 공유 모의고사 후보이다. `ts-05`, `ts-12`~`ts-15`는 공유 상태를
   손상시킬 수 있고, `ca-06`, `ca-09`, `ca-11`~`ca-13`, `sn-05`, `st-06`은 각자
   독립된 일회용 셀을 요구하므로 공유 form에서 제외한다. 이 12문제는 개별 연습 전용이다.
 
@@ -270,7 +270,7 @@ docs/                      # 시험 개요 · 채점·준비 완료 정책
 ```bash
 tests/selftest.sh --only st-01      # 특정 문제의 setup/solve/grade 정합성 검증
 tests/selftest.sh --domain storage  # 공유 문제의 도메인 단위 검증
-tests/selftest.sh --include-disposable # 52문제 전체(고비용 셀·asset 필요)
+tests/selftest.sh --include-disposable # 53문제 전체(고비용 셀·asset 필요)
 tests/selftest.sh --contract-only   # 클러스터 없이 계약 검증만 실행
 ./cka cluster reset                 # 클러스터 완전 재생성
 ./cka cluster down                  # 관리 중인 일회용 셀 정리 + 공유 클러스터 삭제

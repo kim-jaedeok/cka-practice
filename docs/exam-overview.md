@@ -32,7 +32,7 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 [공식 Resources Allowed](https://docs.linuxfoundation.org/tc-docs/certification/certification-resources-allowed)를
 확인한다.
 
-## 공식 도메인과 현재 52문제
+## 공식 도메인과 현재 53문제
 
 도메인과 비중은
 [공식 CKA 페이지](https://training.linuxfoundation.org/certification/certified-kubernetes-administrator-cka/)에
@@ -45,7 +45,7 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 | Troubleshooting | 30% | ts-01 ~ ts-15 (15개) |
 | Cluster Architecture, Installation & Configuration | 25% | ca-01 ~ ca-13 (13개) |
 | Services & Networking | 20% | sn-01 ~ sn-10 (10개) |
-| Workloads & Scheduling | 15% | wl-01 ~ wl-08 (8개) |
+| Workloads & Scheduling | 15% | wl-01 ~ wl-09 (9개) |
 | Storage | 10% | st-01 ~ st-06 (6개) |
 
 역량별 `covered`/`partial`/`gap` 판정과 문제 매핑의 단일 기준은
@@ -56,6 +56,7 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 
 - `wl-07`: required node affinity와 topology spread constraint를 함께 적용하고 실제 배치를 확인한다.
 - `wl-08`: LimitRange와 ResourceQuota admission 제약을 만족하도록 워크로드를 수정한다.
+- `wl-09`: 제공된 Secret을 파일로 마운트하고 프로그램의 설정 파일 경로를 연결한다.
 - `st-05`: access mode와 `Retain` reclaim policy를 사용해 보존된 데이터를 새 claim에 재연결한다.
 - `sn-09`: Cloud Provider KIND가 주소를 할당한 LoadBalancer Service의 HTTP (Hypertext
   Transfer Protocol) 데이터 경로를 실제로 확인한다.
@@ -92,10 +93,10 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 [Gateway API HTTP routing](https://gateway-api.sigs.k8s.io/guides/user-guides/http-routing/),
 [CSI 배포](https://kubernetes-csi.github.io/docs/deploying.html)를 구현 기준으로 삼는다.
 
-`wl-07`, `wl-08`, `st-05`, `sn-09`, `sn-10`은 개별 연습과 공유 모의고사 후보에
+`wl-07`, `wl-08`, `wl-09`, `st-05`, `sn-09`, `sn-10`은 개별 연습과 공유 모의고사 후보에
 들어간다. `ts-05`, `ts-12`~`ts-15`는 공유 상태를 손상시킬 수 있고, `ca-06`, `ca-09`,
 `ca-11`~`ca-13`, `sn-05`, `st-06`은 각각 일회용 셀을 요구한다. 이 12문제는 공유
-모의고사에서 제외하므로 52문제 중 공유 form 후보는 40개다.
+모의고사에서 제외하므로 53문제 중 공유 form 후보는 41개다.
 
 LoadBalancer 구현은 Cloud Provider KIND v0.11.1로 고정한다. kind 공식 문서는
 Cloud Provider KIND를 사용해 `type: LoadBalancer` Service를 지원하는 방법을 설명한다:

@@ -3,7 +3,7 @@
 #   각 문제에 대해: setup → grade(만점이면 안 됨) → solve(모범답안) → grade(만점이어야 함) → teardown/cleanup
 # 사용법:
 #   tests/selftest.sh                  # 공유 클러스터 문제
-#   tests/selftest.sh --include-disposable # 52문제 전체(고비용 opt-in)
+#   tests/selftest.sh --include-disposable # 53문제 전체(고비용 opt-in)
 #   tests/selftest.sh --domain storage # 특정 도메인만
 #   tests/selftest.sh --only st-01     # 특정 문제만
 #   tests/selftest.sh --contract-only  # 클러스터 없이 공통/static 계약만

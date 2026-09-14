@@ -54,6 +54,7 @@ wl-05|workloads-scheduling|800|pair-ca05-wl05,pair-ca06-wl05|worker2-general-sch
 wl-06|workloads-scheduling|100||||true
 wl-07|workloads-scheduling|100|pair-ca06-wl07||worker1-ready,worker1-schedulable,worker1-general-scheduling,worker2-ready,worker2-schedulable,worker2-general-scheduling|true
 wl-08|workloads-scheduling|100||||true
+wl-09|workloads-scheduling|100|||dns|true
 st-01|storage|100||||true
 st-02|storage|100|||unmanaged-pod-survival|true
 st-03|storage|100|||unmanaged-pod-survival|true

@@ -124,8 +124,8 @@ CSI (Container Storage Interface) driver/CSINode 등록, dynamic PV
 [`exam/forms/question-catalog.tsv`](../exam/forms/question-catalog.tsv)의 compatibility
 metadata를 사용해 만든다. 동일 catalog와 seed는 같은 form을 만든다. domain quota,
 mutex, `breaks`와 `requires`, 문제별 enable 상태를 검사하며 setup priority로 환경 구성
-순서를 정한다. 전체 52문제 중 `ts-05`, `ts-12`~`ts-15`, `ca-06`, `ca-09`,
-`ca-11`~`ca-13`, `sn-05`, `st-06`은 공유 모의고사에서 비활성화하고 나머지 40문제를
+순서를 정한다. 전체 53문제 중 `ts-05`, `ts-12`~`ts-15`, `ca-06`, `ca-09`,
+`ca-11`~`ca-13`, `sn-05`, `st-06`은 공유 모의고사에서 비활성화하고 나머지 41문제를
 후보로 사용한다. 앞의 troubleshooting 문제는 공유 상태를 손상시킬 수 있고, 뒤의 7문제는
 각각 독립된 일회용 셀을 요구한다.
 

@@ -10,7 +10,7 @@
 
 ## 지원 범위
 
-- 52개 문제 중 `environment: shared-kind`이며 Kubernetes API (Application Programming
+- 53개 문제 중 `environment: shared-kind`이며 Kubernetes API (Application Programming
   Interface)만으로 풀 수 있는 34개를 허용 목록으로 관리한다. node shell, etcd, kubeadm,
   static Pod, Helm, host 전용 endpoint 또는 일회용 셀이 필요한 문제는 제외한다.
 - `prepare`는 허용 목록과 compatibility metadata로 17문항 form을 만들고 모든 setup과
@@ -23,7 +23,7 @@
 
 허용 목록은 [`supported-questions.txt`](supported-questions.txt), 제출 파일은
 [`answer-files.tsv`](answer-files.tsv)에 정의한다. 이 모드는 일회용 셀 문제 7개를 포함하지
-않으며, 기본 `cka exam`의 40개 공유 후보 pool과도 동일하지 않다.
+않으며, 기본 `cka exam`의 41개 공유 후보 pool과도 동일하지 않다.
 
 ## 사전 조건
 

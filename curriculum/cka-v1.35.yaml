@@ -87,7 +87,7 @@
       "weight": 15,
       "competencies": [
         {"id": "deployments-rollouts-rollbacks", "status": "covered", "labs": ["wl-01"], "planned": []},
-        {"id": "configmaps-and-secrets", "status": "covered", "labs": ["wl-06"], "planned": []},
+        {"id": "configmaps-and-secrets", "status": "covered", "labs": ["wl-06", "wl-09"], "planned": []},
         {"id": "workload-autoscaling", "status": "covered", "labs": ["wl-03"], "planned": []},
         {"id": "self-healing-deployments", "status": "covered", "labs": ["wl-04"], "planned": []},
         {"id": "pod-admission-and-scheduling", "status": "covered", "labs": ["wl-05", "wl-07", "wl-08"], "planned": []}
