@@ -226,6 +226,13 @@ validate_version_lock() {
   [[ "$HELM_LINUX_AMD64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
     && [[ "$HELM_LINUX_ARM64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
     || die "Helm archive sha256 형식 오류"
+  [[ "$TTYD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "ttyd_version 형식 오류: $TTYD_VERSION"
+  [ "$TTYD_RELEASE_BASE_URL" = "https://github.com/tsl0922/ttyd/releases/download/$TTYD_VERSION" ] \
+    || die "ttyd release URL/version이 lock 안에서 일치하지 않습니다."
+  [[ "$TTYD_LINUX_AMD64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    && [[ "$TTYD_LINUX_ARM64_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+    || die "ttyd binary sha256 형식 오류"
   [[ "$CLOUD_PROVIDER_KIND_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || die "cloud_provider_kind_version 형식 오류: $CLOUD_PROVIDER_KIND_VERSION"
   [ "$CLOUD_PROVIDER_KIND_RELEASE_BASE_URL" = \
@@ -267,6 +274,10 @@ load_version_lock() {
   _version_lock_assign HELM_VERSION helm_version
   _version_lock_assign HELM_LINUX_AMD64_SHA256 helm_linux_amd64_sha256
   _version_lock_assign HELM_LINUX_ARM64_SHA256 helm_linux_arm64_sha256
+  _version_lock_assign TTYD_VERSION ttyd_version
+  _version_lock_assign TTYD_RELEASE_BASE_URL ttyd_release_base_url
+  _version_lock_assign TTYD_LINUX_AMD64_SHA256 ttyd_linux_amd64_sha256
+  _version_lock_assign TTYD_LINUX_ARM64_SHA256 ttyd_linux_arm64_sha256
   _version_lock_assign CLOUD_PROVIDER_KIND_VERSION cloud_provider_kind_version
   _version_lock_assign CLOUD_PROVIDER_KIND_RELEASE_BASE_URL cloud_provider_kind_release_base_url
   _version_lock_assign CLOUD_PROVIDER_KIND_LINUX_AMD64_SHA256 cloud_provider_kind_linux_amd64_sha256

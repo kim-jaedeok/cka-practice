@@ -111,8 +111,10 @@ class KubeadmPackageLockTest(unittest.TestCase):
         self.assertIn('preload_kubeadm_pause "$qid"', cell)
         self.assertIn("kind load image-archive", cell)
         self.assertIn("crictl inspecti", cell)
-        self.assertIn('docker pull --platform linux/amd64 "$pause_ref"', cache)
-        self.assertEqual(cache.count("docker image save --platform linux/amd64"), 2)
+        self.assertIn('docker pull --platform "linux/$KUBEADM_PACKAGE_ARCH" "$pause_ref"', cache)
+        self.assertEqual(
+            cache.count('docker image save --platform "linux/$KUBEADM_PACKAGE_ARCH"'), 2
+        )
 
     def test_cell_workloads_are_offline_and_digest_locked(self):
         expected = {
@@ -128,8 +130,8 @@ class KubeadmPackageLockTest(unittest.TestCase):
         self.assertIn("kubeadm_workload_cache_verify", cell)
         self.assertIn("kind load image-archive", cell)
         self.assertNotIn("crictl pull", cell)
-        self.assertIn('docker pull --platform linux/amd64 "$workload_ref"', cache)
-        self.assertIn("docker image save --platform linux/amd64", cache)
+        self.assertIn('docker pull --platform "linux/$KUBEADM_PACKAGE_ARCH" "$workload_ref"', cache)
+        self.assertIn('docker image save --platform "linux/$KUBEADM_PACKAGE_ARCH"', cache)
 
 
 if __name__ == "__main__":

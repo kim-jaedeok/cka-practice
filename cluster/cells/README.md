@@ -92,7 +92,9 @@ stale alias does not silently fall back to another cell.
 ## Offline preparation
 
 Question setup never downloads the version-sensitive package, manifest, or
-image assets. Cache them once from a trusted online WSL/amd64 environment:
+image assets. Cache them once from a trusted online Linux environment of the
+architecture that will run the cells (WSL/amd64, or arm64 such as a Colima VM on
+Apple Silicon). Each script selects its lock by `uname -m`:
 
 ```bash
 bash cluster/cells/kubeadm/cache-packages.sh
@@ -101,8 +103,17 @@ bash cluster/csi/cache-images.sh
 ```
 
 `ca-06` accepts only the exact `.deb` package names and SHA-256 (Secure Hash
-Algorithm 256-bit) values in `cluster/cells/kubeadm/packages.lock`. Controller
+Algorithm 256-bit) values in `cluster/cells/kubeadm/packages.lock` (amd64) or
+`packages.linux-arm64.lock` (arm64). Controller
 and CSI caches have their own checksum and image-digest locks.
+
+kubeadm preflight reads the host kernel config from `/proc/config.gz` or
+`/boot/config-<release>` (`getKernelConfigReader` in
+https://github.com/kubernetes/system-validators/blob/master/validators/kernel_validator.go).
+When the host has no `/proc/config.gz` (for example the Ubuntu kernel of a Colima
+VM), `cell_create` mounts `/boot/config-<release>` read-only into every cell node
+through a temporary copy of the kind config. Hosts with `/proc/config.gz`, such as
+WSL, use the checked-in kind config unchanged.
 
 ## Live verification
 

@@ -22,7 +22,9 @@ webhooks, GatewayClass and generated resources live only in the question's
 
 No manifest or image is fetched while a question is prepared, solved, or
 graded. Run both cache steps in this order on an online trusted `linux/amd64`
-host:
+or `linux/arm64` host. The host architecture selects `assets.lock` (amd64) or
+`assets.linux-arm64.lock` (arm64), and the matching digest-pinned EnvoyProxy
+profile under `profiles/`:
 
 ```bash
 bash cluster/cells/kubeadm/cache-packages.sh

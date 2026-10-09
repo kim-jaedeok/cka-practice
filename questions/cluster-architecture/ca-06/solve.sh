@@ -14,6 +14,7 @@ kctx drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout=180s
 cell_exec ca-06 worker2 bash -c '
   set -euo pipefail
   version="$1"
+  arch="$2"
   kubelet_defaults=/etc/default/kubelet
   [ -f "$kubelet_defaults" ] && [ ! -L "$kubelet_defaults" ]
   kubelet_defaults_sha256="$(sha256sum "$kubelet_defaults" | awk '\''{print $1}'\'')"
@@ -21,19 +22,19 @@ cell_exec ca-06 worker2 bash -c '
   export DEBIAN_FRONTEND=noninteractive
   apt-mark unhold kubeadm
   apt-get -o Dpkg::Options::=--force-confold install -y \
-    "/opt/cka/packages/kubeadm_${version}_amd64.deb"
+    "/opt/cka/packages/kubeadm_${version}_${arch}.deb"
   apt-mark hold kubeadm
   kubeadm upgrade node
   apt-mark unhold kubelet kubectl
   apt-get -o Dpkg::Options::=--force-confold install -y \
-    "/opt/cka/packages/kubelet_${version}_amd64.deb" \
-    "/opt/cka/packages/kubectl_${version}_amd64.deb"
+    "/opt/cka/packages/kubelet_${version}_${arch}.deb" \
+    "/opt/cka/packages/kubectl_${version}_${arch}.deb"
   [ "$(sha256sum "$kubelet_defaults" | awk '\''{print $1}'\'')" = \
       "$kubelet_defaults_sha256" ]
   apt-mark hold kubelet kubectl
   systemctl daemon-reload
   systemctl restart kubelet
-' _ "$TARGET"
+' _ "$TARGET" "$KUBEADM_PACKAGE_ARCH"
 
 kctx wait --for=condition=Ready "node/$NODE" --timeout=180s >/dev/null
 kctx uncordon "$NODE"

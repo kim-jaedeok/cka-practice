@@ -35,8 +35,8 @@ declare -a from_files=()
 for package in cri-tools kubernetes-cni kubeadm kubelet kubectl; do
   from_package_version="$(kubeadm_package_version "$package" FROM)"
   to_package_version="$(kubeadm_package_version "$package" TO)"
-  from="$cache/${package}_${from_package_version}_amd64.deb"
-  to="$cache/${package}_${to_package_version}_amd64.deb"
+  from="$cache/${package}_${from_package_version}_${KUBEADM_PACKAGE_ARCH}.deb"
+  to="$cache/${package}_${to_package_version}_${KUBEADM_PACKAGE_ARCH}.deb"
   for file in "$from" "$to"; do
     [ -f "$file" ] && [ ! -L "$file" ]
     base="$(basename "$file")"
@@ -46,7 +46,7 @@ for package in cri-tools kubernetes-cni kubeadm kubelet kubectl; do
     [ "$(sha256sum "$file" | awk '{print $1}')" = "$expected" ]
     _cell_docker cp "$file" "$worker_id:/opt/cka/packages/$base"
   done
-  from_files+=("/opt/cka/packages/${package}_${from_package_version}_amd64.deb")
+  from_files+=("/opt/cka/packages/${package}_${from_package_version}_${KUBEADM_PACKAGE_ARCH}.deb")
 done
 
 cell_exec_stdin "$qid" worker2 bash -s -- "${from_files[@]}" <<'NODE'

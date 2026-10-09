@@ -325,7 +325,7 @@ def build_bundle(
         wanted_os, wanted_arch = platform.split("/", 1)
     except ValueError as exc:
         raise CacheError(f"invalid locked platform: {platform!r}") from exc
-    if (wanted_os, wanted_arch) != ("linux", "amd64"):
+    if (wanted_os, wanted_arch) not in {("linux", "amd64"), ("linux", "arm64")}:
         raise CacheError(f"unsupported locked platform: {platform!r}")
     if not specs or len({spec.tag for spec in specs}) != len(specs):
         raise CacheError("bundle image set is empty or contains duplicate tags")

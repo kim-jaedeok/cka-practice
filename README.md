@@ -35,7 +35,10 @@ lock에 기록된 각 프로젝트의 공식 릴리스:
 
 `ca-06`, `ca-09`, `ca-13`, `sn-05`, `st-06`은 시험 중 네트워크를 사용하지 않도록
 공식 패키지·manifest·image를 checksum과 digest로 고정한 로컬 cache를 요구한다. 인터넷이
-되는 신뢰할 수 있는 준비 단계에서 한 번 실행한다. 현재 고정 bundle은 `linux/amd64`용이다.
+되는 신뢰할 수 있는 준비 단계에서 한 번 실행한다. 고정 bundle은 `linux/amd64`와 `linux/arm64`를
+지원한다. 스크립트는 `uname -m`으로 호스트 아키텍처에 맞는 lock을 고른다. amd64는 기존
+`*.lock`, arm64(예: Apple Silicon의 Colima VM)는 같은 디렉터리의 `*.linux-arm64.lock`을 쓴다.
+캐시는 문제를 실행할 아키텍처의 호스트에서 만든다.
 
 ```bash
 bash cluster/cells/kubeadm/cache-packages.sh
@@ -171,7 +174,11 @@ cka web                   # http://localhost:7681 (기본 포트)
 cka web 8090              # 포트 지정 (터미널은 자동으로 8091)
 ```
 
-- 최초 실행 시 터미널 서버(ttyd) 정적 바이너리를 `~/.local/bin`에 자동 설치한다.
+- 실행 가능한 터미널 서버(ttyd)가 없으면 lock 버전 정적 바이너리를 `~/.local/bin`에 자동 설치한다.
+  `uname -m`에 따라 `ttyd.x86_64`(x86_64) 또는 `ttyd.aarch64`(aarch64, 예: Apple Silicon의 Colima VM)를 고르고,
+  `cluster/versions.lock.yaml`에 고정한 sha256으로 검증한다
+  ([ttyd 1.7.7 릴리스](https://github.com/tsl0922/ttyd/releases/tag/1.7.7)).
+  기존 ttyd가 이 호스트에서 실행되지 않으면(예: 다른 아키텍처용 바이너리) 자동으로 교체한다.
 - Windows 기본 브라우저가 자동으로 열린다 (안 열리면 위 URL (Uniform Resource Locator)에 직접 접속).
 - 왼쪽에서 문제를 고르고 **Start / Grade / Solution / Reset** 버튼으로 조작하며,
   오른쪽 터미널은 지금과 똑같은 실제 bash 셸(`cka`가 PATH에 등록됨)이라 kubectl로 직접 푼다.

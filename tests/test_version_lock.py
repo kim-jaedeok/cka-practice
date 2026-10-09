@@ -82,6 +82,19 @@ class VersionLockTest(unittest.TestCase):
             if key.endswith("_sha256"):
                 self.assertRegex(value, re.compile(r"^[0-9a-f]{64}$"), key)
 
+    def test_ttyd_release_binaries_are_exact_and_checksummed(self):
+        version = self.lock["ttyd_version"]
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertEqual(
+            self.lock["ttyd_release_base_url"],
+            "https://github.com/tsl0922/ttyd/releases/download/" + version,
+        )
+        for arch in ("amd64", "arm64"):
+            self.assertRegex(
+                self.lock[f"ttyd_linux_{arch}_sha256"],
+                r"^[0-9a-f]{64}$",
+            )
+
     def test_cloud_provider_kind_release_is_exact_and_versioned(self):
         version = self.lock["cloud_provider_kind_version"]
         self.assertRegex(version, r"^v\d+\.\d+\.\d+$")

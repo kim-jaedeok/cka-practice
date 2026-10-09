@@ -199,7 +199,7 @@ CKA 합격을 선언하지 않는다.
 
 [`cluster/versions.lock.yaml`](../cluster/versions.lock.yaml)은 kind와 node image digest,
 etcd image, Calico, metrics-server, ingress-nginx, Gateway API, Cloud Provider KIND와
-그 proxy image, Helm 버전을 고정한다. 셋업은
+그 proxy image, Helm 버전, 웹 UI용 ttyd 바이너리 checksum을 고정한다. 셋업은
 kind와 Helm 버전, metrics-server manifest와 Helm archive의 checksum, 기존 kind node 및
 etcd image ref, Cloud Provider KIND archive·binary checksum과 proxy image digest를 검사하며
 lock과 다르면 명시적 reset 또는 설치 정정을 요구한다.

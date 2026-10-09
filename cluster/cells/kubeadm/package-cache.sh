@@ -2,7 +2,12 @@
 # Parser and verifier for the real kubeadm upgrade package cache.
 
 KUBEADM_PACKAGE_ROOT="${KUBEADM_PACKAGE_ROOT:-$CKA_ROOT/cluster/cells/kubeadm}"
-KUBEADM_PACKAGE_LOCK="${KUBEADM_PACKAGE_LOCK:-$KUBEADM_PACKAGE_ROOT/packages.lock}"
+# Host architecture selects the lock; packages.lock stays the amd64 lock.
+case "$(uname -m)" in
+  aarch64|arm64) _kubeadm_default_lock="$KUBEADM_PACKAGE_ROOT/packages.linux-arm64.lock" ;;
+  *) _kubeadm_default_lock="$KUBEADM_PACKAGE_ROOT/packages.lock" ;;
+esac
+KUBEADM_PACKAGE_LOCK="${KUBEADM_PACKAGE_LOCK:-$_kubeadm_default_lock}"
 KUBEADM_PACKAGE_CACHE="${KUBEADM_PACKAGE_CACHE:-$KUBEADM_PACKAGE_ROOT/packages}"
 
 kubeadm_package_lock_get() {
@@ -60,7 +65,8 @@ kubeadm_package_lock_load() {
     done
   done
 
-  [ "$KUBEADM_PACKAGE_SCHEMA" = 1 ] && [ "$KUBEADM_PACKAGE_ARCH" = amd64 ] \
+  [ "$KUBEADM_PACKAGE_SCHEMA" = 1 ] \
+    && [[ "$KUBEADM_PACKAGE_ARCH" =~ ^(amd64|arm64)$ ]] \
     || die "unsupported kubeadm package lock"
   [[ "$KUBEADM_PACKAGE_FROM_VERSION" =~ ^1\.34\.[0-9]+-1\.1$ ]] \
     && [[ "$KUBEADM_PACKAGE_TO_VERSION" =~ ^1\.35\.[0-9]+-1\.1$ ]] \
@@ -78,9 +84,9 @@ kubeadm_package_lock_load() {
   [ "$KUBEADM_PAUSE_IMAGE" = registry.k8s.io/pause:3.10.1 ] \
     && [[ "$KUBEADM_PAUSE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
     && [[ "$KUBEADM_PAUSE_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] \
-    && [ "$KUBEADM_PAUSE_BUNDLE" = kubeadm-pause-linux-amd64.tar ] \
+    && [ "$KUBEADM_PAUSE_BUNDLE" = "kubeadm-pause-linux-$KUBEADM_PACKAGE_ARCH.tar" ] \
     || die "invalid kubeadm pause image lock"
-  [ "$KUBEADM_WORKLOAD_BUNDLE" = kubeadm-workloads-linux-amd64.tar ] \
+  [ "$KUBEADM_WORKLOAD_BUNDLE" = "kubeadm-workloads-linux-$KUBEADM_PACKAGE_ARCH.tar" ] \
     && [ "$KUBEADM_WORKLOAD_NGINX_IMAGE" = docker.io/library/nginx:1.29 ] \
     && [ "$KUBEADM_WORKLOAD_BUSYBOX_IMAGE" = docker.io/library/busybox:1.36 ] \
     && [[ "$KUBEADM_WORKLOAD_NGINX_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
@@ -97,7 +103,7 @@ kubeadm_package_lock_load() {
       digest="${!digest_var}"
       expected_version="$(kubeadm_package_version "$package" "$side")" \
         || die "package version mapping unavailable"
-      [ "$file" = "${package}_${expected_version}_amd64.deb" ] \
+      [ "$file" = "${package}_${expected_version}_${KUBEADM_PACKAGE_ARCH}.deb" ] \
         && [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || die "invalid package lock entry"
     done
   done

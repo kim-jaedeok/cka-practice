@@ -43,3 +43,13 @@ spec:
         - name: store-svc
           port: 80
 EOF
+
+# Like solve.sh, wait for the generated Envoy data plane before grading. The
+# route stays rejected by allowedRoutes, so only the Gateway conditions apply.
+for _ in $(seq 1 120); do
+  accepted="$(kctx -n traffic get gateway main-gw -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)"
+  programmed="$(kctx -n traffic get gateway main-gw -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || true)"
+  [ "$accepted|$programmed" = "True|True" ] && exit 0
+  sleep 1
+done
+exit 1

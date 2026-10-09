@@ -11,18 +11,19 @@ On `worker2`:
 
 ```bash
 export DEBIAN_FRONTEND=noninteractive
+ARCH="$(dpkg --print-architecture)"   # amd64 or arm64
 KUBELET_DEFAULTS_SHA256="$(sha256sum /etc/default/kubelet | awk '{print $1}')"
 
 apt-mark unhold kubeadm
 apt-get -o Dpkg::Options::=--force-confold install -y \
-  /opt/cka/packages/kubeadm_1.35.0-1.1_amd64.deb
+  "/opt/cka/packages/kubeadm_1.35.0-1.1_${ARCH}.deb"
 apt-mark hold kubeadm
 kubeadm upgrade node
 
 apt-mark unhold kubelet kubectl
 apt-get -o Dpkg::Options::=--force-confold install -y \
-  /opt/cka/packages/kubelet_1.35.0-1.1_amd64.deb \
-  /opt/cka/packages/kubectl_1.35.0-1.1_amd64.deb
+  "/opt/cka/packages/kubelet_1.35.0-1.1_${ARCH}.deb" \
+  "/opt/cka/packages/kubectl_1.35.0-1.1_${ARCH}.deb"
 test "$(sha256sum /etc/default/kubelet | awk '{print $1}')" = \
   "$KUBELET_DEFAULTS_SHA256"
 apt-mark hold kubelet kubectl

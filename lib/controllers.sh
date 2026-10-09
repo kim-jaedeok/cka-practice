@@ -7,7 +7,12 @@ if [ -z "${CKA_ROOT:-}" ]; then
 fi
 
 CONTROLLER_ROOT="${CONTROLLER_ROOT:-$CKA_ROOT/cluster/controllers}"
-CONTROLLER_LOCK="${CONTROLLER_LOCK:-$CONTROLLER_ROOT/assets.lock}"
+# Host architecture selects the lock; assets.lock stays the amd64 lock.
+case "$(uname -m)" in
+  aarch64|arm64) _controller_default_lock="$CONTROLLER_ROOT/assets.linux-arm64.lock" ;;
+  *) _controller_default_lock="$CONTROLLER_ROOT/assets.lock" ;;
+esac
+CONTROLLER_LOCK="${CONTROLLER_LOCK:-$_controller_default_lock}"
 CONTROLLER_ASSET_DIR="${CONTROLLER_ASSET_DIR:-$CONTROLLER_ROOT/assets}"
 CONTROLLER_WORKLOAD_ASSET_DIR="$CKA_ROOT/cluster/cells/kubeadm/packages"
 CONTROLLER_ARCHIVE_VERIFIER="$CKA_ROOT/cluster/controllers/verify-oci-archive.py"
@@ -84,6 +89,13 @@ controller_lock_load() {
   [ "$CONTROLLER_LOCK_SCHEMA" = 1 ] || die "unsupported controller lock schema"
   [[ "$CONTROLLER_PLATFORM" =~ ^linux/(amd64|arm64)$ ]] \
     || die "invalid controller platform: $CONTROLLER_PLATFORM"
+  # The EnvoyProxy profile pins a platform-manifest digest, so it follows the
+  # loaded lock; envoy-clusterip.yaml stays the amd64 profile.
+  case "$CONTROLLER_PLATFORM" in
+    linux/amd64) _controller_default_envoy_profile="$CONTROLLER_ROOT/profiles/envoy-clusterip.yaml" ;;
+    linux/arm64) _controller_default_envoy_profile="$CONTROLLER_ROOT/profiles/envoy-clusterip.linux-arm64.yaml" ;;
+  esac
+  CONTROLLER_ENVOY_PROFILE="${CONTROLLER_ENVOY_PROFILE:-$_controller_default_envoy_profile}"
   local digest
   for digest in \
     "$CERT_MANAGER_MANIFEST_SHA256" "$GATEWAY_API_MANIFEST_SHA256" \
@@ -105,7 +117,7 @@ controller_lock_load() {
     "$GATEWAY_BACKEND_IMAGE_ID" "$GATEWAY_PROBE_IMAGE_ID"; do
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "invalid controller image config id"
   done
-  [ "$GATEWAY_WORKLOAD_BUNDLE" = kubeadm-workloads-linux-amd64.tar ] \
+  [ "$GATEWAY_WORKLOAD_BUNDLE" = "kubeadm-workloads-${CONTROLLER_PLATFORM/\//-}.tar" ] \
     && [ "$GATEWAY_BACKEND_IMAGE" = docker.io/library/nginx:1.29 ] \
     && [ "$GATEWAY_PROBE_IMAGE" = docker.io/library/busybox:1.36 ] \
     || die "invalid Gateway workload image lock"
@@ -216,7 +228,7 @@ controller_pinned_manifest_verify() {
 }
 
 controller_envoy_profile_file_verify() {
-  local path="$CONTROLLER_ROOT/profiles/envoy-clusterip.yaml" pinned
+  local path="$CONTROLLER_ENVOY_PROFILE" pinned
   pinned="$(controller_pinned_image_ref "$ENVOY_PROXY_IMAGE")" || return 1
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
   python3 - "$path" "$pinned" <<'PY'
@@ -806,7 +818,7 @@ controller_cell_activate() { # <qid> <environment>
       controller_gateway_bundle_is_locked \
         || die "Envoy cell did not install the locked Gateway API bundle"
       kctx apply --server-side --force-conflicts \
-        -f "$CONTROLLER_ROOT/profiles/envoy-clusterip.yaml" >/dev/null
+        -f "$CONTROLLER_ENVOY_PROFILE" >/dev/null
       controller_envoy_profile_is_locked \
         || die "Envoy data-plane image profile drifted from the lock"
       ;;
@@ -877,7 +889,7 @@ controller_cell_cleanup() { # <qid> <environment>
       ;;
     envoy-gateway)
       controller_cleanup_delete_manifest \
-        "EnvoyProxy profile" "$CONTROLLER_ROOT/profiles/envoy-clusterip.yaml" \
+        "EnvoyProxy profile" "$CONTROLLER_ENVOY_PROFILE" \
         || failed=$((failed+1))
       controller_cleanup_delete_manifest \
         "Envoy Gateway manifest" "$(controller_asset_path envoy-gateway)" \

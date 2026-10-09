@@ -17,7 +17,10 @@ A static PV, `hostPath`, or `local` volume does not satisfy the task.
 ## Trusted preparation and use
 
 The checked-in candidate manifest is checksum-locked. Container images are
-pulled only by the trusted online preparation command for `linux/amd64`:
+pulled only by the trusted online preparation command. The host architecture
+selects `assets.lock` with `csi-hostpath-driver.yaml` (`linux/amd64`) or
+`assets.linux-arm64.lock` with `csi-hostpath-driver.linux-arm64.yaml`
+(`linux/arm64`); each manifest pins that platform's image digests:
 
 ```bash
 bash cluster/csi/cache-images.sh
@@ -31,7 +34,7 @@ cka cleanup st-06
 The cache command pulls exact platform-manifest digests and creates a local
 Docker archive. Before publishing or loading it, the runtime verifies the full
 OCI (Open Container Initiative) content closure against the locked image tag,
-platform-manifest digest, config digest and `linux/amd64` platform. The adjacent
+platform-manifest digest, config digest and locked platform. The adjacent
 SHA-256 (Secure Hash Algorithm 256-bit) checksum remains a truncation check; it
 is not treated as the provenance trust root.
 

@@ -244,7 +244,7 @@ contract_ca09_setup_preserves_failure_stage() {
 }
 
 contract_applied_manifests_are_digest_pinned_and_no_pull() {
-  local cert envoy profile="$ROOT/cluster/controllers/profiles/envoy-clusterip.yaml"
+  local cert envoy profile="$CONTROLLER_ENVOY_PROFILE"
   cert="$(controller_pinned_manifest_render cert-manager)" || return 1
   envoy="$(controller_pinned_manifest_render envoy-gateway)" || return 1
   [ "$(grep -Ec '^[[:space:]]*image:[[:space:]]*"?[^"[:space:]]+@sha256:[0-9a-f]{64}"?$' <<<"$cert")" -eq 3 ] \
@@ -313,7 +313,7 @@ contract_controller_cleanup_aggregates_faults() (
   [ "$cleanup_rc" -eq 2 ] \
     && [ "$call_count" -eq 3 ] \
     && [ "$(grep -Fc -- '--ignore-not-found --wait=false' <<<"$call_log")" -eq 3 ] \
-    && grep -Fq '/profiles/envoy-clusterip.yaml' <<<"$call_log" \
+    && grep -Fq -- "$CONTROLLER_ENVOY_PROFILE" <<<"$call_log" \
     && grep -Fq '/locked/envoy-gateway.yaml' <<<"$call_log" \
     && grep -Fq '/locked/gateway-api.yaml' <<<"$call_log"
 )
@@ -416,7 +416,7 @@ contract_gateway_grader_uses_live_data_path() {
     && [ "$(grep -Fc 'imagePullPolicy: Never' "$setup")" -eq 2 ] \
     && grep -Fq 'controller_pinned_image_ref "$GATEWAY_BACKEND_IMAGE"' "$setup" \
     && grep -Fq 'controller_pinned_image_ref "$GATEWAY_PROBE_IMAGE"' "$setup" \
-    && grep -Fq 'type: ClusterIP' "$ROOT/cluster/controllers/profiles/envoy-clusterip.yaml"
+    && grep -Fq 'type: ClusterIP' "$CONTROLLER_ENVOY_PROFILE"
 }
 
 contract_operator_condition_rejects_stale_generation() (

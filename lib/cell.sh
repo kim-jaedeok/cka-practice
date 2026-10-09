@@ -934,9 +934,46 @@ cell_feature_enabled() {
   [ "${CKA_ENABLE_DISPOSABLE_CELLS:-${CKA_ENABLE_KUBEADM_CELLS:-0}}" = 1 ]
 }
 
+# kubeadm preflight reads the kernel config from /proc/config.gz or
+# /boot/config-<release> (kubernetes/system-validators getKernelConfigReader).
+# Kernels built without CONFIG_IKCONFIG_PROC (e.g. the Ubuntu kernel of a Colima
+# VM) keep it only under /boot, which kind nodes cannot see. Mount it read-only
+# in that case; hosts with /proc/config.gz (WSL) keep the original kind config.
+cell_kernel_config_mount_source() {
+  local release
+  [ ! -e /proc/config.gz ] || return 1
+  release="$(uname -r)" || return 1
+  [ -f "/boot/config-$release" ] && [ ! -L "/boot/config-$release" ] || return 1
+  printf '/boot/config-%s\n' "$release"
+}
+
+_cell_render_kind_config() { # <source-config> <output> <kernel-config>
+  python3 - "$1" "$2" "$3" <<'PY'
+import pathlib, re, sys
+source, output, kernel = sys.argv[1:4]
+rendered, nodes = [], 0
+for line in pathlib.Path(source).read_text(encoding="utf-8").splitlines():
+    if "extraMounts" in line:
+        raise SystemExit("kind config already declares extraMounts")
+    rendered.append(line)
+    if re.fullmatch(r"  - role: (control-plane|worker)", line):
+        nodes += 1
+        rendered += [
+            "    extraMounts:",
+            f"      - hostPath: {kernel}",
+            f"        containerPath: {kernel}",
+            "        readOnly: true",
+        ]
+if nodes == 0:
+    raise SystemExit("kind config has no plain node entries")
+pathlib.Path(output).write_text("\n".join(rendered) + "\n", encoding="utf-8")
+PY
+}
+
 cell_create() ( # <qid> <profile> <kind-config>
   set -uo pipefail
   local qid="$1" profile="$2" config="$3" state_dir network_id kind_rc=0 role
+  local kernel_config="" rendered_config=""
   cell_feature_enabled \
     || { err "일회용 셀은 CKA_ENABLE_DISPOSABLE_CELLS=1 일 때만 생성합니다."; return 1; }
   cell_qid_valid "$qid" && cell_profile_valid "$profile" && [ -r "$config" ] || return 1
@@ -984,11 +1021,22 @@ cell_create() ( # <qid> <profile> <kind-config>
     return 1
   }
 
+  if kernel_config="$(cell_kernel_config_mount_source)"; then
+    rendered_config="$(mktemp "${TMPDIR:-/tmp}/cka-cell-kind.XXXXXX")" || return 1
+    if ! _cell_render_kind_config "$config" "$rendered_config" "$kernel_config"; then
+      rm -f -- "$rendered_config"
+      err "kind cell 설정에 커널 config 마운트를 추가하지 못했습니다: $config"
+      return 1
+    fi
+    info "호스트에 /proc/config.gz가 없어 $kernel_config 를 cell 노드에 읽기 전용으로 마운트합니다."
+    config="$rendered_config"
+  fi
   _cell_external_timeout "${CKA_CELL_KIND_CREATE_TIMEOUT_SECONDS}s" \
     env KIND_EXPERIMENTAL_DOCKER_NETWORK="$CELL_NETWORK_NAME" \
     kind create cluster --name "$CELL_CLUSTER_NAME" --image "$KIND_NODE_IMAGE" \
       --config "$config" --kubeconfig "$state_dir/kubeconfig" \
       --wait "${CKA_CELL_KIND_WAIT_SECONDS}s" || kind_rc=$?
+  [ -z "$rendered_config" ] || rm -f -- "$rendered_config"
   _cell_capture_expected_ids "$qid" || {
     err "cell object journal 기록에 실패했습니다. 다음 cleanup은 PREPARING journal을 먼저 복구합니다."
     return 1

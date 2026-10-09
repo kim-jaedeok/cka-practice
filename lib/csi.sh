@@ -8,9 +8,13 @@ fi
 source "$CKA_ROOT/lib/common.sh"
 
 CSI_ROOT="${CSI_ROOT:-$CKA_ROOT/cluster/csi}"
-CSI_LOCK="${CSI_LOCK:-$CSI_ROOT/assets.lock}"
+# Host architecture selects the lock; assets.lock stays the amd64 lock.
+case "$(uname -m)" in
+  aarch64|arm64) _csi_default_lock="$CSI_ROOT/assets.linux-arm64.lock" ;;
+  *) _csi_default_lock="$CSI_ROOT/assets.lock" ;;
+esac
+CSI_LOCK="${CSI_LOCK:-$_csi_default_lock}"
 CSI_ASSET_DIR="${CSI_ASSET_DIR:-$CSI_ROOT/assets}"
-CSI_DRIVER_MANIFEST_PATH="$CSI_ROOT/csi-hostpath-driver.yaml"
 CSI_ARCHIVE_VERIFIER="$CKA_ROOT/cluster/controllers/verify-oci-archive.py"
 
 csi_lock_get() { # <key>
@@ -68,8 +72,12 @@ csi_lock_load() {
     || die "invalid CSI source tag"
   [[ "$CSI_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "invalid CSI source commit"
   [[ "$CSI_PLATFORM" =~ ^linux/(amd64|arm64)$ ]] || die "invalid CSI platform"
-  [ "$CSI_DRIVER_MANIFEST" = csi-hostpath-driver.yaml ] \
-    || die "unexpected CSI manifest name"
+  # The driver manifest pins platform-manifest digests, so each platform has its own copy.
+  case "$CSI_PLATFORM" in
+    linux/amd64) [ "$CSI_DRIVER_MANIFEST" = csi-hostpath-driver.yaml ] ;;
+    linux/arm64) [ "$CSI_DRIVER_MANIFEST" = csi-hostpath-driver.linux-arm64.yaml ] ;;
+  esac || die "unexpected CSI manifest name"
+  CSI_DRIVER_MANIFEST_PATH="$CSI_ROOT/$CSI_DRIVER_MANIFEST"
   [[ "$CSI_DRIVER_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] \
     || die "invalid CSI manifest checksum"
   [[ "$CSI_IMAGE_BUNDLE" =~ ^[A-Za-z0-9._-]+\.tar$ ]] \
