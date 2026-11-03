@@ -1,0 +1,6 @@
+id: sn-14
+title: Preserve the client source IP on a NodePort Service
+domain: services-networking
+points: 6
+minutes: 6
+mock_exam: false

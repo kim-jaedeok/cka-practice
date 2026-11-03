@@ -1,0 +1,7 @@
+id: sn-12
+title: Identify the CNI configuration and IPAM plugin on a node
+domain: services-networking
+points: 4
+minutes: 5
+mock_exam: false
+answer_files: ["ipam.txt"]

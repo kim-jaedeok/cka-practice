@@ -8,6 +8,9 @@
 # - Any question whose meta.yaml selects a disposable environment is disabled
 #   here. It runs individually through `cka start`, never in the shared form.
 # - ts-05 and ts-12 remain disabled until their faults also move to cells.
+# - Network reinforcement labs (sn-11 and later, ts-16 and later) are
+#   practice-only. Mock exams will draw from the held-out exam bank instead
+#   (docs/exam-bank-design.md).
 ts-01|troubleshooting|100||||true
 ts-02|troubleshooting|100||||true
 ts-03|troubleshooting|100|||dns|true
@@ -23,6 +26,8 @@ ts-12|troubleshooting|1000||scheduler||false
 ts-13|troubleshooting|900||||false
 ts-14|troubleshooting|900||||false
 ts-15|troubleshooting|900||||false
+ts-16|troubleshooting|100||||false
+ts-17|troubleshooting|100||||false
 ca-01|cluster-architecture|100|namespace-dev-team|||true
 ca-02|cluster-architecture|100|namespace-dev-team|||true
 ca-03|cluster-architecture|100||||true
@@ -46,6 +51,10 @@ sn-07|services-networking|100|||dns,unmanaged-pod-survival|true
 sn-08|services-networking|900|coredns-config||dns|true
 sn-09|services-networking|100|||loadbalancer-provider|true
 sn-10|services-networking|100|||dns,unmanaged-pod-survival|true
+sn-11|services-networking|100||||false
+sn-12|services-networking|100||||false
+sn-13|services-networking|100||||false
+sn-14|services-networking|100||||false
 wl-01|workloads-scheduling|100||||true
 wl-02|workloads-scheduling|100||||true
 wl-03|workloads-scheduling|100||||true

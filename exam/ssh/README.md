@@ -10,7 +10,7 @@
 
 ## 지원 범위
 
-- 53개 문제 중 `environment: shared-kind`이며 Kubernetes API (Application Programming
+- 59개 문제 중 `environment: shared-kind`이며 Kubernetes API (Application Programming
   Interface)만으로 풀 수 있는 34개를 허용 목록으로 관리한다. node shell, etcd, kubeadm,
   static Pod, Helm, host 전용 endpoint 또는 일회용 셀이 필요한 문제는 제외한다.
 - `prepare`는 허용 목록과 compatibility metadata로 17문항 form을 만들고 모든 setup과

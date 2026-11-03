@@ -32,7 +32,7 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 [공식 Resources Allowed](https://docs.linuxfoundation.org/tc-docs/certification/certification-resources-allowed)를
 확인한다.
 
-## 공식 도메인과 현재 53문제
+## 공식 도메인과 현재 59문제
 
 도메인과 비중은
 [공식 CKA 페이지](https://training.linuxfoundation.org/certification/certified-kubernetes-administrator-cka/)에
@@ -42,9 +42,9 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 
 | 도메인 | 공식 비중 | 로컬 문제 |
 |---|---:|---|
-| Troubleshooting | 30% | ts-01 ~ ts-15 (15개) |
+| Troubleshooting | 30% | ts-01 ~ ts-17 (17개) |
 | Cluster Architecture, Installation & Configuration | 25% | ca-01 ~ ca-13 (13개) |
-| Services & Networking | 20% | sn-01 ~ sn-10 (10개) |
+| Services & Networking | 20% | sn-01 ~ sn-14 (14개) |
 | Workloads & Scheduling | 15% | wl-01 ~ wl-09 (9개) |
 | Storage | 10% | st-01 ~ st-06 (6개) |
 
@@ -79,6 +79,15 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 - `st-06`: CSI (Container Storage Interface) driver 등록부터 dynamic
   PV (PersistentVolume) provisioning, attachment와 volume data까지 확인한다.
 
+네트워크 보강 문제(연습 전용, 설계: [exam-bank-design.md](exam-bank-design.md) 트랙 B):
+
+- `sn-11`: node에서 다른 node의 Pod로 가는 route의 interface(overlay)를 찾는다.
+- `sn-12`: node의 CNI 설정에서 IPAM plugin을 찾는다.
+- `sn-13`: headless Service와 StatefulSet으로 Pod별 DNS 이름을 만든다.
+- `sn-14`: `externalTrafficPolicy: Local`로 클러스터 밖 client의 source IP를 보존한다.
+- `ts-16`: readiness 실패로 EndpointSlice가 not ready인 Service를 고친다.
+- `ts-17`: host port 충돌로 Pending인 hostNetwork Pod를 고친다.
+
 종합 장애 문제의 진단·복구 기준은 Kubernetes 공식 문서의
 [kubeadm cluster 재구성](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-reconfigure/),
 [`crictl` node 디버깅](https://kubernetes.io/docs/tasks/debug/debug-cluster/crictl/),
@@ -95,8 +104,9 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 
 `wl-07`, `wl-08`, `wl-09`, `st-05`, `sn-09`, `sn-10`은 개별 연습과 공유 모의고사 후보에
 들어간다. `ts-05`, `ts-12`~`ts-15`는 공유 상태를 손상시킬 수 있고, `ca-06`, `ca-09`,
-`ca-11`~`ca-13`, `sn-05`, `st-06`은 각각 일회용 셀을 요구한다. 이 12문제는 공유
-모의고사에서 제외하므로 53문제 중 공유 form 후보는 41개다.
+`ca-11`~`ca-13`, `sn-05`, `st-06`은 각각 일회용 셀을 요구한다. 네트워크 보강 문제
+`sn-11`~`sn-14`, `ts-16`, `ts-17`은 연습 전용이다. 이 18문제는 공유 모의고사에서 제외하므로
+59문제 중 공유 form 후보는 41개다.
 
 LoadBalancer 구현은 Cloud Provider KIND v0.11.1로 고정한다. kind 공식 문서는
 Cloud Provider KIND를 사용해 `type: LoadBalancer` Service를 지원하는 방법을 설명한다:

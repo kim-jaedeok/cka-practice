@@ -1,0 +1,7 @@
+id: sn-13
+title: Give StatefulSet Pods stable DNS names with a headless Service
+domain: services-networking
+points: 6
+minutes: 7
+mock_exam: false
+answer_files: ["worker-1-fqdn.txt"]

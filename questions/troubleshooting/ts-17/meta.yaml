@@ -1,0 +1,6 @@
+id: ts-17
+title: hostNetwork Pod is Pending because of a host port conflict
+domain: troubleshooting
+points: 6
+minutes: 8
+mock_exam: false

@@ -1,0 +1,7 @@
+id: sn-11
+title: Find the node interface that carries cross-node Pod traffic
+domain: services-networking
+points: 4
+minutes: 6
+mock_exam: false
+answer_files: ["egress-interface.txt"]
