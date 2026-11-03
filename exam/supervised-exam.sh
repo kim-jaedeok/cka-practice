@@ -714,6 +714,12 @@ cmd_status() {
 cmd_question() {
   local number="${1:-}"
   load_run
+  # Question text is exam content: reveal it only once the deadline supervisor
+  # is running, and afterwards for review. Never before start.
+  case "$STATUS_PHASE" in
+    RUNNING|SEALED|COLLECTED|GRADED) ;;
+    *) runner_transition_error "question text requires a started run, found $STATUS_PHASE" ;;
+  esac
   [[ "$number" =~ ^([1-9]|1[0-7])$ ]] || runner_die "question number must be 1-17"
   local qid qdir
   qid="$(sed -n "${number}p" "$RUN_DIR/questions")"; qdir="$(question_dir "$qid")"

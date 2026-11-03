@@ -472,6 +472,30 @@ if db["containers"] or os.environ["EXTERNAL_ID"] not in db["networks"] or len(db
 PY
 ok 'invalid user transition preserves RUNNING so cleanup seals/removes exact IDs'
 
+# Question text must stay hidden until start activates the deadline supervisor.
+case_root="$(new_case question-gate)"; mkdir -p "$case_root/run" "$case_root/question"
+printf 'ts-01\n' > "$case_root/run/questions"
+printf 'secret task text\n' > "$case_root/question/question.md"
+for phase in PREPARING PREPARED INVALID RUNNING; do
+  set +e
+  out="$(CKA_SSH_RUNNER_SOURCE_ONLY=1 RUNNER_UNDER_TEST="$RUNNER" CASE_ROOT="$case_root" PHASE="$phase" bash -c '
+      source "$RUNNER_UNDER_TEST"
+      load_run(){ RUN_ID=question-gate; RUN_DIR="$CASE_ROOT/run"; STATUS_PHASE="$PHASE"; }
+      question_dir(){ printf "%s\n" "$CASE_ROOT/question"; }
+      cmd_question 1
+    ' 2>/dev/null)"
+  question_rc=$?
+  set -e
+  if [ "$phase" = RUNNING ]; then
+    [ "$question_rc" -eq 0 ] && grep -Fq 'secret task text' <<<"$out" \
+      || fail 'RUNNING run could not show question text'
+  else
+    [ "$question_rc" -ne 0 ] && ! grep -Fq 'secret task text' <<<"$out" \
+      || fail "question text was revealed in $phase"
+  fi
+done
+ok 'question text is hidden before start and shown while RUNNING'
+
 # Runner must not reach even the first host grader when authorization fails.
 case_root="$(new_case grade-gate)"; mkdir -p "$case_root/run/collected"; printf 'ts-01\n' > "$case_root/run/questions"
 cat > "$case_root/fail-session" <<'SH'
