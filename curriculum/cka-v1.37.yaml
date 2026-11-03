@@ -1,5 +1,5 @@
 {
-  "version": "v1.35",
+  "version": "v1.37",
   "source": "https://training.linuxfoundation.org/certification/certified-kubernetes-administrator-cka/",
   "policy": {
     "covered": "At least one hands-on lab exercises the complete competency.",
@@ -7,7 +7,7 @@
     "gap": "No hands-on lab currently exercises the competency."
   },
   "implementationValidation": {
-    "status": "practice-ready-live-complete",
+    "status": "static-complete-live-pending",
     "requiredLiveSuites": [
       "tests/kubeadm-live-test.sh",
       "tests/operator-gateway-live-test.sh",
@@ -15,6 +15,44 @@
       "tests/ssh-supervised-live-test.sh"
     ],
     "liveResults": {
+      "kubernetesVersion": "v1.37.0",
+      "validatedOn": null,
+      "passed": [
+        {
+          "suite": "tests/kubeadm-live-test.sh",
+          "cases": ["ca-12", "ca-11", "ca-06"],
+          "validatedOn": "2026-11-03",
+          "host": "Colima Ubuntu 24.04 aarch64 VM",
+          "cleanup": "passed"
+        },
+        {
+          "suite": "tests/operator-gateway-live-test.sh",
+          "cases": ["ca-09", "ca-13", "sn-05"],
+          "validatedOn": "2026-11-03",
+          "host": "Colima Ubuntu 24.04 aarch64 VM",
+          "cleanup": "passed"
+        },
+        {
+          "suite": "tests/csi-live-test.sh",
+          "cases": ["st-06"],
+          "validatedOn": "2026-11-03",
+          "host": "Colima Ubuntu 24.04 aarch64 VM",
+          "cleanup": "passed"
+        }
+      ],
+      "pending": [
+        {
+          "suite": "tests/ssh-supervised-live-test.sh",
+          "cases": [
+            "wl-03", "wl-02", "ts-01", "ts-03", "wl-08", "ts-02",
+            "ts-04", "sn-01", "st-01", "sn-09", "sn-08", "st-04",
+            "ca-01", "ca-02", "ca-05", "ca-08", "ts-10"
+          ]
+        }
+      ]
+    },
+    "previousLiveResults": {
+      "kubernetesVersion": "v1.35.0",
       "validatedOn": "2026-08-23",
       "passed": [
         {

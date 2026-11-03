@@ -16,14 +16,14 @@ KUBELET_DEFAULTS_SHA256="$(sha256sum /etc/default/kubelet | awk '{print $1}')"
 
 apt-mark unhold kubeadm
 apt-get -o Dpkg::Options::=--force-confold install -y \
-  "/opt/cka/packages/kubeadm_1.35.0-1.1_${ARCH}.deb"
+  "/opt/cka/packages/kubeadm_1.37.0-1.1_${ARCH}.deb"
 apt-mark hold kubeadm
 kubeadm upgrade node
 
 apt-mark unhold kubelet kubectl
 apt-get -o Dpkg::Options::=--force-confold install -y \
-  "/opt/cka/packages/kubelet_1.35.0-1.1_${ARCH}.deb" \
-  "/opt/cka/packages/kubectl_1.35.0-1.1_${ARCH}.deb"
+  "/opt/cka/packages/kubelet_1.37.0-1.1_${ARCH}.deb" \
+  "/opt/cka/packages/kubectl_1.37.0-1.1_${ARCH}.deb"
 test "$(sha256sum /etc/default/kubelet | awk '{print $1}')" = \
   "$KUBELET_DEFAULTS_SHA256"
 apt-mark hold kubelet kubectl
@@ -43,7 +43,7 @@ kubectl -n node-upgrade rollout status deployment/payments-api
 
 This cell downgrades and upgrades the official `kubeadm`, `kubelet`, and
 `kubectl` Debian packages. The kubelet version reported by the Node therefore
-changes from `v1.34.0` to `v1.35.0`.
+changes from `v1.36.0` to `v1.37.0`.
 
 Official procedure:
 https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/upgrading-linux-nodes/

@@ -68,20 +68,21 @@ kubeadm_package_lock_load() {
   [ "$KUBEADM_PACKAGE_SCHEMA" = 1 ] \
     && [[ "$KUBEADM_PACKAGE_ARCH" =~ ^(amd64|arm64)$ ]] \
     || die "unsupported kubeadm package lock"
-  [[ "$KUBEADM_PACKAGE_FROM_VERSION" =~ ^1\.34\.[0-9]+-1\.1$ ]] \
-    && [[ "$KUBEADM_PACKAGE_TO_VERSION" =~ ^1\.35\.[0-9]+-1\.1$ ]] \
-    || die "upgrade package versions must be adjacent 1.34 -> 1.35"
+  [[ "$KUBEADM_PACKAGE_FROM_VERSION" =~ ^1\.36\.[0-9]+-1\.1$ ]] \
+    && [[ "$KUBEADM_PACKAGE_TO_VERSION" =~ ^1\.37\.[0-9]+-1\.1$ ]] \
+    || die "upgrade package versions must be adjacent 1.36 -> 1.37"
   [ "$KUBEADM_PACKAGE_FROM_REPOSITORY" = \
-      "https://pkgs.k8s.io/core:/stable:/v1.34/deb" ] \
+      "https://pkgs.k8s.io/core:/stable:/v1.36/deb" ] \
     && [ "$KUBEADM_PACKAGE_TO_REPOSITORY" = \
-      "https://pkgs.k8s.io/core:/stable:/v1.35/deb" ] \
+      "https://pkgs.k8s.io/core:/stable:/v1.37/deb" ] \
     || die "unexpected Kubernetes package repository"
-  [ "$KUBEADM_PACKAGE_CRI_TOOLS_FROM_VERSION" = 1.34.0-1.1 ] \
-    && [ "$KUBEADM_PACKAGE_CRI_TOOLS_TO_VERSION" = 1.35.0-1.1 ] \
-    && [ "$KUBEADM_PACKAGE_KUBERNETES_CNI_FROM_VERSION" = 1.7.1-1.1 ] \
-    && [ "$KUBEADM_PACKAGE_KUBERNETES_CNI_TO_VERSION" = 1.8.0-1.1 ] \
+  # v1.36 and v1.37 both ship kubernetes-cni 1.9.1, so FROM and TO share a file.
+  [ "$KUBEADM_PACKAGE_CRI_TOOLS_FROM_VERSION" = 1.36.0-1.1 ] \
+    && [ "$KUBEADM_PACKAGE_CRI_TOOLS_TO_VERSION" = 1.37.0-1.1 ] \
+    && [ "$KUBEADM_PACKAGE_KUBERNETES_CNI_FROM_VERSION" = 1.9.1-1.1 ] \
+    && [ "$KUBEADM_PACKAGE_KUBERNETES_CNI_TO_VERSION" = 1.9.1-1.1 ] \
     || die "unexpected Kubernetes dependency package versions"
-  [ "$KUBEADM_PAUSE_IMAGE" = registry.k8s.io/pause:3.10.1 ] \
+  [ "$KUBEADM_PAUSE_IMAGE" = registry.k8s.io/pause:3.10.2 ] \
     && [[ "$KUBEADM_PAUSE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
     && [[ "$KUBEADM_PAUSE_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] \
     && [ "$KUBEADM_PAUSE_BUNDLE" = "kubeadm-pause-linux-$KUBEADM_PACKAGE_ARCH.tar" ] \

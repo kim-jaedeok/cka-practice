@@ -1,7 +1,7 @@
 # Certified Kubernetes Administrator (CKA) 준비 완료 정책
 
 이 문서는 [`exam/readiness-policy.yaml`](../exam/readiness-policy.yaml)의 학습 기준과
-[`curriculum/cka-v1.35.yaml`](../curriculum/cka-v1.35.yaml)의 구현 검증 gate를 사람이
+[`curriculum/cka-v1.37.yaml`](../curriculum/cka-v1.37.yaml)의 구현 검증 gate를 사람이
 실행할 수 있는 형태로 정리한다. Linux Foundation의 공식 합격 판정이나 합격 보장이 아니다.
 
 공식 CKA 합격선은 66%이고, 모든 과제는 문항에 지정된 SSH (Secure Shell) host에서
@@ -15,15 +15,47 @@
 
 ## 현재 implementation validation 상태
 
-저장소 구현 검증 상태는 `practice-ready-live-complete`다. cluster-free 정적·계약·장애
-주입 검사가 통과했고, 2026-08-22에는 kubeadm, Operator·Gateway, CSI (Container Storage
-Interface)의 모든 열거된 일회용 문제를 실제 Docker 환경에서 검증해 각 실행의 resource
-cleanup까지 통과했다. 2026-08-23에는 clean Ubuntu 24.04 WSL2 (Windows Subsystem for
-Linux 2)에서 감독형 SSH (Secure Shell) 17문항 end-to-end gate도 통과했다. 이 상태는
-저장소의 구현·live 검증 완료를 뜻하며 Linux Foundation의 공식 합격 보장이나 개인의 학습
-준비 완료 판정이 아니다.
+저장소 구현 검증 상태는 `static-complete-live-pending`이다. 공식 CKA 시험 환경이
+Kubernetes v1.37로 바뀌어, 저장소의 고정 버전을 `v1.37.0`으로 올렸다. 네 필수 suite 중
+세 개는 `v1.37.0`에서 다시 통과했고, 감독형 SSH suite는 아직 실행하지 않았다. 따라서
+live gate 재검증 전에는 저장소를 `practice-ready-live-complete`로 표시하지 않는다.
 
-| curriculum 필수 suite | 범위 | 현재 상태 |
+| curriculum 필수 suite | v1.37.0 결과 (2026-11-03, Colima Ubuntu 24.04 aarch64 VM) |
+|---|---|
+| [`tests/kubeadm-live-test.sh`](../tests/kubeadm-live-test.sh) | 통과: `ca-12`, `ca-11`(cp1 중지 후 API write·Service path), `ca-06`(실제 1.36.0→1.37.0 package), 각 cleanup |
+| [`tests/operator-gateway-live-test.sh`](../tests/operator-gateway-live-test.sh) | 통과: `ca-09`, `ca-13`, `sn-05`, 각 cleanup |
+| [`tests/csi-live-test.sh`](../tests/csi-live-test.sh) | 통과: `st-06` canonical·대안 풀이 각각 10/10, cleanup |
+| [`tests/ssh-supervised-live-test.sh`](../tests/ssh-supervised-live-test.sh) | 미실행: 기존 KIND cluster가 없는 clean host가 필요하다 |
+
+`v1.37.0` node image의 containerd v2.3.4는 `kind load image-archive` 뒤에 archive 전체
+index를 가리키는 `import-<날짜>@sha256:…` 참조를 남긴다. 이 참조가 첫 image의 Pod
+`imageID`로 보고되어 `ca-09`의 locked digest 검사가 처음에 실패했다. `v1.35.0` node
+image의 containerd v2.2.0에서는 이 참조가 생기지 않았다. [`lib/cell.sh`](../lib/cell.sh)의
+`cell_node_drop_archive_index_ref`가 load 직후 그 참조 하나만 지운 뒤 위 결과를 얻었다.
+
+v1.37 갱신 중 upstream이 아직 v1.37을 공식 지원하지 않는 구성요소는 다음과 같다.
+이 구성요소는 기존 버전을 유지하고 live suite 결과로 동작을 판정한다.
+
+| 구성요소 | 유지 버전 | 공식 지원 범위 |
+|---|---|---|
+| cert-manager | v1.21.1 | Kubernetes 1.33~1.36 ([releases](https://cert-manager.io/docs/releases/)) |
+| Envoy Gateway | v1.9.0 | Kubernetes 1.33~1.36 ([matrix](https://gateway.envoyproxy.io/news/releases/matrix/)) |
+| ingress-nginx | controller-v1.15.1 | Kubernetes 1.31~1.35, 2026-03-24 archive ([README](https://github.com/kubernetes/ingress-nginx)) |
+
+## 이전 버전의 live 검증 기록 (Kubernetes v1.35.0)
+
+다음 기록은 `v1.35.0` 고정 시점의 결과다. curriculum registry의
+`implementationValidation.previousLiveResults`에 같은 내용이 있다. 이 기록은 `v1.37.0`의
+통과 증거가 아니다.
+
+`v1.35.0`에서는 cluster-free 정적·계약·장애 주입 검사가 통과했고, 2026-08-22에는 kubeadm,
+Operator·Gateway, CSI (Container Storage Interface)의 모든 열거된 일회용 문제를 실제 Docker
+환경에서 검증해 각 실행의 resource cleanup까지 통과했다. 2026-08-23에는 clean Ubuntu 24.04
+WSL2 (Windows Subsystem for Linux 2)에서 감독형 SSH (Secure Shell) 17문항 end-to-end gate도
+통과했다. 당시 이 상태는 저장소의 구현·live 검증 완료를 뜻했으며 Linux Foundation의
+공식 합격 보장이나 개인의 학습 준비 완료 판정이 아니었다.
+
+| curriculum 필수 suite | 범위 | v1.35.0 결과 |
 |---|---|---|
 | [`tests/kubeadm-live-test.sh`](../tests/kubeadm-live-test.sh) | `ca-12` bootstrap, `ca-11` stacked-etcd HA (High Availability) failover, `ca-06` N-1→N upgrade | 통과: blank init/join, 3-control-plane 구성 후 `cp1` 중지 상태의 API (Application Programming Interface) write·Service path, 실제 v1.34→v1.35 worker upgrade와 각 cleanup |
 | [`tests/operator-gateway-live-test.sh`](../tests/operator-gateway-live-test.sh) | `ca-09` reconcile, `ca-13` install, `sn-05` Envoy data path | 통과: cert-manager reconcile, offline operator install, Gateway status·HTTP (Hypertext Transfer Protocol) data path와 각 cleanup |
@@ -140,6 +172,6 @@ Docker의 공식 명령 문서도 일반 container 삭제와 anonymous volume �
 3. 실제 지정-host workflow를 사용한다.
 4. 등록 상품에 제공되는 외부 공식 simulator를 통과한다.
 
-현재 네 required live suite는 모두 통과해 저장소 구현·live gate는 완료됐다. 다만 개인이
-2~4번 조건을 충족했다는 증거는 별도이므로, 이 repository 상태만으로 공식 CKA 합격이나
-개인 학습의 “준비 종료”를 선언하지 않는다.
+`v1.37.0`에서는 네 required live suite 중 감독형 SSH suite가 아직 재검증 전이다.
+따라서 1번 조건도 다시 충족해야 한다. 개인이 2~4번 조건을 충족했다는 증거도 별도이므로,
+이 repository 상태만으로 공식 CKA 합격이나 개인 학습의 “준비 종료”를 선언하지 않는다.

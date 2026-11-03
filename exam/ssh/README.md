@@ -149,13 +149,13 @@ contract와 별도 runner smoke는 계속 빠른 보조 회귀 검사로 사용�
 | 항목 | 고정 값 | 검증 |
 |---|---|---|
 | base OS (Operating System) image | `ubuntu:24.04@sha256:33ceb719…987517` | Docker manifest digest |
-| kubectl amd64 | `v1.35.0`, `a2e984a1…060989` | 다운로드 후 SHA-256 (Secure Hash Algorithm 256-bit) |
-| kubectl arm64 | `v1.35.0`, `58f82f9f…89e25` | 다운로드 후 SHA-256 |
+| kubectl amd64 | `v1.37.0`, `6129359f…961a2f` | 다운로드 후 SHA-256 (Secure Hash Algorithm 256-bit) |
+| kubectl arm64 | `v1.37.0`, `922df28d…eef3` | 다운로드 후 SHA-256 |
 | yq amd64 | `v4.48.2`, `0ffc3532…25bcc` | 다운로드 후 SHA-256 |
 | yq arm64 | `v4.48.2`, `3c21630f…cfe45` | 다운로드 후 SHA-256 |
 
 공식 근거:
-[kubectl Linux 설치](https://v1-35.docs.kubernetes.io/docs/tasks/tools/install-kubectl-linux/) ·
+[kubectl Linux 설치](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/) ·
 [yq v4.48.2 release](https://github.com/mikefarah/yq/releases/tag/v4.48.2) ·
 [Ubuntu Docker Official Image](https://hub.docker.com/_/ubuntu) ·
 [Docker digest pin](https://docs.docker.com/reference/cli/docker/image/pull/#pull-an-image-by-digest-immutable-identifier)

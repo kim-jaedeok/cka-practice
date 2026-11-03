@@ -59,7 +59,7 @@ fi
 ssh_exam_require_docker
 ssh_exam_require_image_role "$base_image" base
 ssh_exam_require_image_role "$target_image" target
-ssh_exam_require_image_label "$target_image" org.cka-practice.tool.kubectl v1.35.0
+ssh_exam_require_image_label "$target_image" org.cka-practice.tool.kubectl v1.37.0
 ssh_exam_require_image_label "$target_image" org.cka-practice.tool.yq v4.48.2
 
 prefix="$(ssh_exam_prefix "$run_id")"
@@ -228,7 +228,7 @@ docker exec --user candidate "$base_container" ssh -o BatchMode=yes cka-target '
   esac
   echo "$kubectl_sha  /usr/local/bin/kubectl" | sha256sum --check --strict >/dev/null
   echo "$yq_sha  /usr/local/bin/yq" | sha256sum --check --strict >/dev/null
-  kubectl version --client | grep -Fx "Client Version: v1.35.0" >/dev/null
+  kubectl version --client | grep -Fx "Client Version: v1.37.0" >/dev/null
   yq --version | grep -F "version v4.48.2" >/dev/null
 '
 

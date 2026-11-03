@@ -533,6 +533,38 @@ _cell_manifest_write() {
 _cell_external_timeout() { timeout --foreground --kill-after=5s "$@"; }
 _cell_docker() { _cell_external_timeout "${CKA_CELL_DOCKER_TIMEOUT:-45}s" docker "$@"; }
 
+# containerd 2.3 (KIND node v1.37) keeps an extra import-<date>@<digest>
+# reference for the whole archive index when kind imports it with
+# `ctr images import --digests`. CRI merges that name into the first image's
+# RepoDigests, and kubelet then reports it as the Pod imageID. Remove exactly
+# that reference; per-image tags and canonical digest references stay.
+# CRI caches the name normalized as docker.io/library/import-..., and removing
+# only the short containerd name leaves that cache entry behind. Creating and
+# removing the normalized name as well makes CRI drop it.
+cell_node_drop_archive_index_ref() { # <node-container> <archive>
+  local node="$1" archive="$2" digest refs ref images attempt
+  digest="$(set -o pipefail; tar -xOf "$archive" index.json | sha256sum | awk '{print $1}')" \
+    || return 1
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  refs="$(_cell_docker exec "$node" ctr --namespace=k8s.io images list -q)" || return 1
+  while IFS= read -r ref; do
+    [[ "$ref" =~ ^import-[0-9]{4}-[0-9]{2}-[0-9]{2}@sha256:${digest}$ ]] || continue
+    _cell_docker exec "$node" ctr --namespace=k8s.io images tag --local --force \
+      "$ref" "docker.io/library/$ref" >/dev/null || return 1
+    _cell_docker exec "$node" ctr --namespace=k8s.io images rm \
+      "$ref" "docker.io/library/$ref" >/dev/null || return 1
+  done <<< "$refs"
+
+  # CRI consumes containerd metadata events asynchronously.
+  for attempt in $(seq 1 30); do
+    if images="$(_cell_docker exec "$node" crictl images -o json 2>/dev/null)"; then
+      grep -Fq "@sha256:$digest" <<<"$images" || return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 cell_question_setup_timeout_seconds() { # <qid>
   local qdir value
   qdir="$(qdir_of "$1")" || return 1

@@ -1,7 +1,7 @@
-# Certified Kubernetes Administrator (CKA) 시험 개요와 로컬 커버리지 (Kubernetes v1.35)
+# Certified Kubernetes Administrator (CKA) 시험 개요와 로컬 커버리지 (Kubernetes v1.37)
 
 CKA의 현재 공식 시험 정보와 이 저장소의 범위를
-구분해 기록한다. 공식 페이지는 시험 환경이 Kubernetes v1.35이며 최신 마이너 릴리스 후
+구분해 기록한다. 공식 페이지는 시험 환경이 Kubernetes v1.37이며 최신 마이너 릴리스 후
 약 4~8주 안에 갱신된다고 안내한다. 따라서 응시 직전에는 아래 공식 출처를 다시 확인해야 한다.
 
 ## 공식 시험 형식
@@ -12,7 +12,7 @@ CKA의 현재 공식 시험 정보와 이 저장소의 범위를
 | 시간 | 2시간 |
 | 과제 수 | 15~20개 |
 | 합격선 | 66% 이상 |
-| 현재 환경 | Kubernetes v1.35 |
+| 현재 환경 | Kubernetes v1.37 |
 | 인증 유효 기간 | 2년 |
 | 공식 simulator | 등록 상품에 따라 Killer.sh 2회, 회당 활성화 후 36시간 |
 
@@ -36,8 +36,8 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 
 도메인과 비중은
 [공식 CKA 페이지](https://training.linuxfoundation.org/certification/certified-kubernetes-administrator-cka/)에
-게시된 v1.35 역량과
-[Cloud Native Computing Foundation (CNCF) 공식 v1.35 curriculum](https://github.com/cncf/curriculum/blob/master/CKA_Curriculum_v1.35.pdf)을
+게시된 v1.37 역량과
+[Cloud Native Computing Foundation (CNCF) 공식 v1.37 curriculum](https://github.com/cncf/curriculum/blob/master/CKA_Curriculum_v1.37.pdf)을
 기준으로 한다. 문제 수는 로컬 뱅크의 수이며 실제 시험 문항 수나 배점을 뜻하지 않는다.
 
 | 도메인 | 공식 비중 | 로컬 문제 |
@@ -49,7 +49,7 @@ Reference 등으로 제한된다. 허용 범위는 변경될 수 있으므로 �
 | Storage | 10% | st-01 ~ st-06 (6개) |
 
 역량별 `covered`/`partial`/`gap` 판정과 문제 매핑의 단일 기준은
-[`curriculum/cka-v1.35.yaml`](../curriculum/cka-v1.35.yaml)이다. 문제 수가 많더라도 공식
+[`curriculum/cka-v1.37.yaml`](../curriculum/cka-v1.37.yaml)이다. 문제 수가 많더라도 공식
 역량 전체가 `covered`가 아니면 이 저장소만으로 준비가 끝났다고 판단하지 않는다.
 
 ### 주요 보강 문제
@@ -169,16 +169,20 @@ deadline을 실행하고 재시작 가능한 guard가 이를 보조하며, 감�
 | Gateway API | 공식 Services & Networking 역량에 포함 | `sn-05`가 Envoy Gateway의 상태와 실제 HTTP data path를 검증 |
 | Storage extension | CSI driver 설치·storage 구성 역량에 포함 | `st-06`이 CSI driver 등록, dynamic provisioning, attachment와 실제 volume data를 검증 |
 
-cluster-free 정적·계약 검사와 `ca-06`, `ca-09`, `ca-11`~`ca-13`, `sn-05`, `st-06`의
-Docker live gate가 통과했다. 여기에는 blank kubeadm init/join, 3-control-plane
+Kubernetes v1.35.0 고정 시점에는 cluster-free 정적·계약 검사와 `ca-06`, `ca-09`,
+`ca-11`~`ca-13`, `sn-05`, `st-06`의 Docker live gate가 통과했다. 여기에는 blank kubeadm init/join, 3-control-plane
 stacked-etcd failover 중 API write·Service path, 실제 worker upgrade, cert-manager
 reconcile·offline install, Envoy Gateway 상태·HTTP data path, CSI provisioning·attachment와
 data path 및 각 일회용 resource cleanup이 포함된다. 2026-08-23 clean Ubuntu 24.04 WSL2
 (Windows Subsystem for Linux 2)에서 실제 17문항 감독형 SSH gate도 통과했다. 104/104
 상태에서 무개입 deadline 후 `TIMEOUT`, guard kill·restart, 실제 base→target SSH와 exact
-cleanup을 검증했으며 종료 후 관련 Docker·KIND object는 모두 0개였다. 따라서 저장소의
-구현 검증은 `practice-ready-live-complete`지만, 이 상태만으로 개인의 “준비 종료”나 공식
-CKA 합격을 선언하지 않는다.
+cleanup을 검증했으며 종료 후 관련 Docker·KIND object는 모두 0개였다.
+
+v1.37.0으로 고정 버전을 올린 뒤 2026-11-03에 일회용 셀 7문제의 live gate는 다시 통과했다.
+감독형 SSH gate는 아직 다시 실행하지 않았다. 따라서 현재 저장소의 구현 검증 상태는
+`static-complete-live-pending`이다. 재검증 현황은
+[`readiness-policy.md`](readiness-policy.md)에 기록한다. 어떤 상태든 그것만으로 개인의
+“준비 종료”나 공식 CKA 합격을 선언하지 않는다.
 
 ### 일회용 셀의 host 저장 공간과 정리 정책
 
@@ -205,17 +209,17 @@ etcd image ref, Cloud Provider KIND archive·binary checksum과 proxy image dige
 lock과 다르면 명시적 reset 또는 설치 정정을 요구한다.
 
 lock 버전의 공식 릴리스:
-[kind v0.31.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0) ·
-[etcd v3.6.6](https://github.com/etcd-io/etcd/releases/tag/v3.6.6) ·
-[Calico v3.32.1](https://github.com/projectcalico/calico/releases/tag/v3.32.1) ·
+[kind v0.33.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.33.0) ·
+[etcd v3.7.0](https://github.com/etcd-io/etcd/releases/tag/v3.7.0) ·
+[Calico v3.33.0](https://github.com/projectcalico/calico/releases/tag/v3.33.0) ·
 [metrics-server v0.9.0](https://github.com/kubernetes-sigs/metrics-server/releases/tag/v0.9.0) ·
 [ingress-nginx controller-v1.15.1](https://github.com/kubernetes/ingress-nginx/releases/tag/controller-v1.15.1) ·
 [Gateway API v1.6.0](https://github.com/kubernetes-sigs/gateway-api/releases/tag/v1.6.0) ·
 [Cloud Provider KIND v0.11.1](https://github.com/kubernetes-sigs/cloud-provider-kind/releases/tag/v0.11.1) ·
-[Helm v3.21.4](https://github.com/helm/helm/releases/tag/v3.21.4)
+[Helm v3.22.1](https://github.com/helm/helm/releases/tag/v3.22.1)
 
 일회용 문제는 별도 lock을 사용한다. `cluster/cells/kubeadm/packages.lock`은 Kubernetes
-v1.34.0·v1.35.0 package를, `cluster/controllers/assets.lock`은 cert-manager v1.21.1,
+v1.36.0·v1.37.0 package를, `cluster/controllers/assets.lock`은 cert-manager v1.21.1,
 Gateway API v1.6.1과 Envoy Gateway v1.9.0을, `cluster/csi/assets.lock`은 CSI host-path
 driver와 sidecar image를 checksum·platform manifest digest로 고정한다. runtime은 네트워크
 download 없이 준비된 cache만 받아들인다. 공식 release 기준은
@@ -231,11 +235,14 @@ download 없이 준비된 cache만 받아들인다. 공식 release 기준은
 
 1. 충분한 host 저장 공간이 있는 목표 WSL host에서 kubeadm bootstrap·upgrade·HA failover,
    cert-manager reconcile·install, Envoy Gateway HTTP, CSI provisioning·data path의 opt-in
-   live 검사를 모두 통과한다. 이 일회용 셀 검사는 2026-08-22에 모두 통과했고 각 cleanup도
-   성공했다. `st-06`은 canonical solution과 의미상 동등한 대안이 각각 10/10을 받았다.
+   live 검사를 모두 통과한다. 이 일회용 셀 검사는 v1.35.0 기준으로 2026-08-22에 모두
+   통과했고 각 cleanup도 성공했다. `st-06`은 canonical solution과 의미상 동등한 대안이 각각
+   10/10을 받았다. v1.37.0에서도 2026-11-03 Colima Ubuntu 24.04 aarch64 VM에서 모두
+   다시 통과했고 각 cleanup도 성공했다.
 2. persistent user systemd와 login linger가 있는 host에서 감독형 SSH runner의 prepare부터
    deadline seal·수집·채점·cleanup까지 실제 lifecycle과 장애 주입 검사를 통과한다. 이
-   gate는 2026-08-23 clean Ubuntu 24.04 WSL2에서 통과했다. 실제 17문항 form의 104/104
+   gate는 v1.35.0 기준으로 2026-08-23 clean Ubuntu 24.04 WSL2에서 통과했고, v1.37.0에서는
+   재검증 전이다. 실제 17문항 form의 104/104
    결과와 별개로 무개입 deadline이 `TIMEOUT`을 강제했고, guard kill·restart, 실제
    base→target SSH 및 exact cleanup도 통과했다. 종료 후 관련 cluster·container·network와
    volume은 모두 0개였다.
@@ -245,7 +252,7 @@ download 없이 준비된 cache만 받아들인다. 공식 release 기준은
 
 필수 suite의 정확한 파일명·실행 방법·완료 상태는
 [`readiness-policy.md`](readiness-policy.md)에 기록한다. curriculum registry도 같은
-네 파일을 [`implementationValidation.requiredLiveSuites`](../curriculum/cka-v1.35.yaml)로
+네 파일을 [`implementationValidation.requiredLiveSuites`](../curriculum/cka-v1.37.yaml)로
 열거한다.
 
 위 80%·65% 기준은 이 프로젝트의 보수적인 학습 gate이며 공식 합격선이나 합격 예측이

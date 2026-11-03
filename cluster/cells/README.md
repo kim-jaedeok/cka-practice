@@ -22,7 +22,7 @@ must not reuse `CKA_CLUSTER_NAME`.
 
 | Environment | Questions | What it supplies |
 |---|---|---|
-| `kubeadm-upgrade` | `ca-06` | v1.35 control plane and a real v1.34 worker for an N-1→N package upgrade |
+| `kubeadm-upgrade` | `ca-06` | v1.37 control plane and a real v1.36 worker for an N-1→N package upgrade |
 | `kubeadm-ha` | `ca-11` | load balancer, initialized `cp1`, blank `cp2`/`cp3`, three workers, stacked-etcd HA (High Availability) join and failover path |
 | `kubeadm-bootstrap` | `ca-12` | blank `cp1`/`worker1`/`worker2` hosts for `kubeadm init` and `join` |
 | `operator-cell` | `ca-09`, `ca-13` | cert-manager configure/reconcile and offline operator-install cells |
@@ -129,7 +129,9 @@ CKA_CONTROLLER_LIVE=1 bash tests/operator-gateway-live-test.sh --only sn-05
 CKA_CSI_LIVE=1 bash tests/csi-live-test.sh
 ```
 
-On 2026-08-22 all seven disposable exercises passed their live gates. The
+On 2026-08-22, with the Kubernetes v1.35.0 lock, all seven disposable
+exercises passed their live gates. On 2026-11-03 all seven passed again with
+the v1.37.0 lock on a Colima Ubuntu 24.04 aarch64 VM. The
 kubeadm results covered `ca-12` blank init/join, `ca-11` three-control-plane
 stacked-etcd membership plus API (Application Programming Interface) write and
 Service traffic while `cp1` remained stopped, and the real `ca-06` v1.34 to

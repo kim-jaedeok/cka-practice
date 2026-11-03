@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the official CKA v1.35 competency registry."""
+"""Validate the official CKA v1.37 competency registry."""
 
 import json
 import pathlib
@@ -8,7 +8,17 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-REGISTRY = ROOT / "curriculum" / "cka-v1.35.yaml"
+REGISTRY = ROOT / "curriculum" / "cka-v1.37.yaml"
+EXPECTED_CASES = {
+    "tests/kubeadm-live-test.sh": ["ca-12", "ca-11", "ca-06"],
+    "tests/operator-gateway-live-test.sh": ["ca-09", "ca-13", "sn-05"],
+    "tests/csi-live-test.sh": ["st-06"],
+    "tests/ssh-supervised-live-test.sh": [
+        "wl-03", "wl-02", "ts-01", "ts-03", "wl-08", "ts-02",
+        "ts-04", "sn-01", "st-01", "sn-09", "sn-08", "st-04",
+        "ca-01", "ca-02", "ca-05", "ca-08", "ts-10",
+    ],
+}
 QUESTION_ID = re.compile(r"^(ca|sn|st|ts|wl)-\d{2}$")
 
 
@@ -48,7 +58,10 @@ class CurriculumRegistryTest(unittest.TestCase):
 
     def test_required_live_suites_are_real_scripts(self):
         validation = self.data["implementationValidation"]
-        self.assertEqual(validation["status"], "practice-ready-live-complete")
+        self.assertIn(
+            validation["status"],
+            {"practice-ready-live-complete", "static-complete-live-pending"},
+        )
         suites = validation["requiredLiveSuites"]
         self.assertGreaterEqual(len(suites), 4)
         self.assertEqual(len(suites), len(set(suites)))
@@ -60,7 +73,7 @@ class CurriculumRegistryTest(unittest.TestCase):
     def test_live_results_partition_required_suites(self):
         validation = self.data["implementationValidation"]
         results = validation["liveResults"]
-        self.assertEqual(results["validatedOn"], "2026-08-23")
+        self.assertEqual(results["kubernetesVersion"], "v1.37.0")
 
         passed = {item["suite"]: item for item in results["passed"]}
         pending = {item["suite"]: item for item in results["pending"]}
@@ -68,40 +81,25 @@ class CurriculumRegistryTest(unittest.TestCase):
         self.assertEqual(
             set(validation["requiredLiveSuites"]), set(passed) | set(pending)
         )
-        self.assertEqual(
-            passed["tests/kubeadm-live-test.sh"]["cases"],
-            ["ca-12", "ca-11", "ca-06"],
-        )
-        self.assertEqual(
-            passed["tests/operator-gateway-live-test.sh"]["cases"],
-            ["ca-09", "ca-13", "sn-05"],
-        )
-        self.assertEqual(
-            passed["tests/csi-live-test.sh"]["cases"], ["st-06"]
-        )
+        for suite, item in {**passed, **pending}.items():
+            self.assertEqual(item["cases"], EXPECTED_CASES[suite], suite)
+        # A version is complete only when every required suite passed on it.
+        if validation["status"] == "practice-ready-live-complete":
+            self.assertEqual(pending, {})
+            self.assertRegex(results["validatedOn"], r"^\d{4}-\d{2}-\d{2}$")
+        else:
+            self.assertTrue(pending)
+
+    def test_previous_version_live_results_are_preserved(self):
+        results = self.data["implementationValidation"]["previousLiveResults"]
+        self.assertEqual(results["kubernetesVersion"], "v1.35.0")
+        self.assertEqual(results["validatedOn"], "2026-08-23")
+
+        passed = {item["suite"]: item for item in results["passed"]}
+        self.assertEqual(results["pending"], [])
+        for suite, cases in EXPECTED_CASES.items():
+            self.assertEqual(passed[suite]["cases"], cases, suite)
         ssh = passed["tests/ssh-supervised-live-test.sh"]
-        self.assertEqual(
-            ssh["cases"],
-            [
-                "wl-03",
-                "wl-02",
-                "ts-01",
-                "ts-03",
-                "wl-08",
-                "ts-02",
-                "ts-04",
-                "sn-01",
-                "st-01",
-                "sn-09",
-                "sn-08",
-                "st-04",
-                "ca-01",
-                "ca-02",
-                "ca-05",
-                "ca-08",
-                "ts-10",
-            ],
-        )
         self.assertEqual(ssh["score"], "104/104")
         self.assertEqual(ssh["deadlineVerdict"], "TIMEOUT")
         self.assertEqual(ssh["guardRestart"], "passed")
@@ -117,7 +115,6 @@ class CurriculumRegistryTest(unittest.TestCase):
             },
         )
         self.assertTrue(all(item["cleanup"] == "passed" for item in passed.values()))
-        self.assertEqual(pending, {})
         supporting = ssh["supportingChecksPassed"]
         self.assertEqual(
             supporting,

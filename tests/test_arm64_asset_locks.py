@@ -43,20 +43,20 @@ def flat_lock(path: pathlib.Path) -> dict[str, str]:
 # Official linux/arm64 values: platform manifests and image configs from the
 # registries' image indexes, .deb SHA256 fields from pkgs.k8s.io Packages.
 ARM64_KUBEADM = {
-    "pause_digest": "sha256:e9c466420bcaeede00f46ecfa0ca8cd854c549f2f13330e2723173d88f2de70f",
-    "pause_image_id": "sha256:d7b100cd9a77ba782c5e428c8dd5a1df4a1e79d4cb6294acd7d01290ab3babbd",
+    "pause_digest": "sha256:a433214620b407678934ebd69690a9ed6066247231eacfba181fab20dbc3dbf1",
+    "pause_image_id": "sha256:3884a337192318652b28de0de1aeb07f446a14f220feb5066f03e93f23ea3b60",
     "workload_nginx_image_id": "sha256:8524ce6c9242ecdadb2974f0924ce4dd02f04d46915d5a0076eeccc0208cd6f8",
     "workload_busybox_image_id": "sha256:b7c873bd97bdc9046fc894e0b216c8aef31e0db4c5b761fb53022e40577ab6c0",
-    "cri_tools_from_sha256": "7744e4b0abd9e5e484f98c8b2b6c26ed8ccef030ef2dbdc030b4ca054254b57f",
-    "cri_tools_to_sha256": "9aff6eea1a6c188d3e67ddf6a8600778f520fc4e1dd335d09ed206deb263b876",
-    "kubernetes_cni_from_sha256": "43d59e7286450062bc56b2b09a188ef90681aa3557174f06040608ea6ad5fa42",
-    "kubernetes_cni_to_sha256": "d94433cc9db66266438d48add855ae8c8dd1397e88e97f67b31384c6f4dd56de",
-    "kubeadm_from_sha256": "d890c4a2eafead87aaf4491c507bb0a36213c880ff8e2b51ced60bf5f0e82d2b",
-    "kubelet_from_sha256": "1ba3c6cb3fc1dfa5ffcdb45075ef46a6e6b3a14f592f0a80e777ef3d14d85aac",
-    "kubectl_from_sha256": "b5af839553ca6c528a8ead56ea8b62481e9d50448ea86c0926b0c7011ac66da2",
-    "kubeadm_to_sha256": "00c50e60fc3ddcb593356611a4251174e74de4d3520a88daa532061e8e33c487",
-    "kubelet_to_sha256": "4148459fcd7c1326cae5b9e01696a796588bdcf7fc4062b476a0868c529fc8d3",
-    "kubectl_to_sha256": "6f706de0d45a6037358db47dad74e5cca85fce12d666fda62d7707a9f913dffb",
+    "cri_tools_from_sha256": "ab8ff8eace53b18fb7316d17f3fa29a01f6fd92b885d3014db415ab7b84619cc",
+    "cri_tools_to_sha256": "8c8373e8fb301d4a272671eb64bf957ddfb19c87afbcad0fc294dfb29ff8c1be",
+    "kubernetes_cni_from_sha256": "fbe479bf9b303fc88bd7c61769687235efa36f684e8ec5e97d45d08669dd1d4d",
+    "kubernetes_cni_to_sha256": "fbe479bf9b303fc88bd7c61769687235efa36f684e8ec5e97d45d08669dd1d4d",
+    "kubeadm_from_sha256": "5e7513cb1d80fb31886ce7c7c97b2931c8663e856e65216d54cf3c1f9b30d577",
+    "kubelet_from_sha256": "ae08405903a5ad8c0d116d7ae8a25154f298b141efce9018f975ddd1981dc53c",
+    "kubectl_from_sha256": "d54bda2fe46784e39d9aaa0831b090782520deaaa1ca5993b2e4d126ffbeb04c",
+    "kubeadm_to_sha256": "1e4652c10e36c1405dd27fae58191992d835534b7cda8daa11276323535d1f3e",
+    "kubelet_to_sha256": "f2ebc0a55ef925a06d0e7343d1337a553cd6e4838bd284e8f4c0b13004a064b9",
+    "kubectl_to_sha256": "2ecc3549965c1446c67337b9cc02a39f86dee94373348cb97ff52da37dbf91fd",
 }
 
 ARM64_CONTROLLERS = {

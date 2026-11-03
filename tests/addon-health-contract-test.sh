@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # These values normally come from versions.lock through lib/common.sh.  Keep
 # this fixture focused on addon state interpretation by supplying fixed locks.
-CALICO_VERSION=v3.32.1
+CALICO_VERSION=v3.33.0
 CALICO_MANIFEST_URL=https://example.invalid/calico.yaml
 METRICS_SERVER_VERSION=v0.9.0
 INGRESS_NGINX_VERSION=controller-v1.15.1

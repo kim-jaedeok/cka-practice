@@ -7,11 +7,11 @@ CKA 수행형 시험을 준비하기 위한 로컬 연습 시스템.
 - 문제 53개 (Cluster Architecture 13 / Workloads 9 / Services & Networking 10 / Storage 6 / Troubleshooting 15)
 - 문제별 정답지 + 한국어 해설 (`answer.md`)
 - 모의고사 모드: seed 기반의 catalog상 호환 가능한 17문항 form + 2시간 타이머 + 성적표
-- 공식 v1.35 역량과 로컬 커버리지를 추적하는 [`curriculum/cka-v1.35.yaml`](curriculum/cka-v1.35.yaml)
+- 공식 v1.37 역량과 로컬 커버리지를 추적하는 [`curriculum/cka-v1.37.yaml`](curriculum/cka-v1.37.yaml)
 - 시험 정보: [docs/exam-overview.md](docs/exam-overview.md) · 채점 방식: [docs/grading-policy.md](docs/grading-policy.md) · 준비 완료 기준: [docs/readiness-policy.md](docs/readiness-policy.md)
 
 > 이 환경의 문제를 모두 풀거나 로컬 모의고사를 통과하는 것만으로 CKA 합격이 보장되지는 않는다.
-> 현재 공식 CKA는 Kubernetes v1.35 기반의 2시간 수행형 시험이며 합격선은 66%다.
+> 현재 공식 CKA는 Kubernetes v1.37 기반의 2시간 수행형 시험이며 합격선은 66%다.
 > 공식 정보: [CKA 시험 페이지](https://training.linuxfoundation.org/certification/certified-kubernetes-administrator-cka/) ·
 > [Linux Foundation FAQ](https://docs.linuxfoundation.org/tc-docs/certification/faq-cka-ckad-cks)
 
@@ -24,14 +24,14 @@ CKA 수행형 시험을 준비하기 위한 로컬 연습 시스템.
 클러스터 의존성은 [`cluster/versions.lock.yaml`](cluster/versions.lock.yaml)에 고정되어 있다.
 셋업은 kind 버전과 기존 노드 이미지가 lock과 다르면 자동으로 덮어쓰지 않고 실패한다.
 lock에 기록된 각 프로젝트의 공식 릴리스:
-[kind v0.31.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0),
-[etcd v3.6.6](https://github.com/etcd-io/etcd/releases/tag/v3.6.6),
-[Calico v3.32.1](https://github.com/projectcalico/calico/releases/tag/v3.32.1),
+[kind v0.33.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.33.0),
+[etcd v3.7.0](https://github.com/etcd-io/etcd/releases/tag/v3.7.0),
+[Calico v3.33.0](https://github.com/projectcalico/calico/releases/tag/v3.33.0),
 [metrics-server v0.9.0](https://github.com/kubernetes-sigs/metrics-server/releases/tag/v0.9.0),
 [ingress-nginx controller-v1.15.1](https://github.com/kubernetes/ingress-nginx/releases/tag/controller-v1.15.1),
 [Gateway API (Application Programming Interface) v1.6.0](https://github.com/kubernetes-sigs/gateway-api/releases/tag/v1.6.0),
 [Cloud Provider KIND v0.11.1](https://github.com/kubernetes-sigs/cloud-provider-kind/releases/tag/v0.11.1),
-[Helm v3.21.4](https://github.com/helm/helm/releases/tag/v3.21.4).
+[Helm v3.22.1](https://github.com/helm/helm/releases/tag/v3.22.1).
 
 `ca-06`, `ca-09`, `ca-13`, `sn-05`, `st-06`은 시험 중 네트워크를 사용하지 않도록
 공식 패키지·manifest·image를 checksum과 digest로 고정한 로컬 cache를 요구한다. 인터넷이
@@ -268,7 +268,7 @@ exam/supervised-exam.sh    # 34문항 허용 목록 기반 감독형 runner
 images/base, images/target # 지정-host 컨테이너 이미지
 tests/selftest.sh          # 전 문제 정합성 검증 (setup→solve→만점 확인)
 tests/contract-test.sh     # runner·grader 계약 검증
-curriculum/                # 공식 v1.35 역량별 로컬 커버리지
+curriculum/                # 공식 v1.37 역량별 로컬 커버리지
 docs/                      # 시험 개요 · 채점·준비 완료 정책
 ```
 
@@ -292,14 +292,14 @@ host-global Cloud Provider KIND도 유지한다.
 공유 클러스터의 기존 소유 경계는 이름이므로, 별도로 만든 클러스터에 같은
 `CKA_CLUSTER_NAME`을 사용하지 않아야 한다.
 
-현재 cluster-free 정적·계약 검사와 네 필수 Docker live suite가 모두 통과했다.
-검증 범위는 `ca-12` blank-node kubeadm bootstrap, `ca-11` 3-control-plane
-stacked-etcd failover, `ca-06` N-1→N worker upgrade, `ca-09`·`ca-13` cert-manager,
-`sn-05` Envoy Gateway, `st-06` CSI (Container Storage Interface) data path와 clean host의
-실제 17문항 감독형 SSH gate다. 2026-08-23 clean Ubuntu 24.04 WSL2 (Windows Subsystem
-for Linux 2)에서 마지막 suite까지 통과했으므로 저장소 구현 검증 상태는
-`practice-ready-live-complete`다. 이는 공식 CKA 합격 보장이나 개인의 “준비 종료” 선언이
-아니다. 별도의 학습 기준과 정확한 명령·결과는
+Kubernetes v1.35.0 고정 시점에는 cluster-free 정적·계약 검사와 네 필수 Docker live
+suite가 모두 통과했다. 검증 범위는 `ca-12` blank-node kubeadm bootstrap, `ca-11`
+3-control-plane stacked-etcd failover, `ca-06` N-1→N worker upgrade, `ca-09`·`ca-13`
+cert-manager, `sn-05` Envoy Gateway, `st-06` CSI (Container Storage Interface) data path와
+clean host의 실제 17문항 감독형 SSH gate였다. 고정 버전을 v1.37.0으로 올린 뒤
+2026-11-03에 kubeadm, Operator·Gateway, CSI suite는 다시 통과했다. 감독형 SSH suite는 아직
+다시 실행하지 않았다. 따라서 현재 저장소 구현 검증 상태는 `static-complete-live-pending`이다. 어떤 상태든 공식 CKA 합격 보장이나 개인의 “준비 종료”
+선언이 아니다. 별도의 학습 기준과 정확한 명령·결과는
 [`docs/readiness-policy.md`](docs/readiness-policy.md)에 있다.
 
 ## 실제 시험과의 차이

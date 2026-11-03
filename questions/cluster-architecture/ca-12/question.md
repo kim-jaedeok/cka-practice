@@ -4,7 +4,7 @@ The three hosts contain containerd, kubelet, kubeadm, and cached images, but do
 not contain Kubernetes cluster state. Build the cluster from this blank state.
 
 1. On `cp1`, inspect and validate `/opt/cka/kubeadm-init.yaml`, then use it to
-   initialize the Kubernetes v1.35 control plane. It fixes the Pod CIDR at
+   initialize the Kubernetes v1.37 control plane. It fixes the Pod CIDR at
    `10.244.0.0/16`, includes API server certificate SAN `127.0.0.1`, and
    contains the local runtime compatibility settings for this disposable cell.
 2. Configure `/root/.kube/config` on `cp1` and install the local network add-on

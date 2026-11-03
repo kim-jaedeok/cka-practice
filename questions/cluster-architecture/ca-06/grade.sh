@@ -58,20 +58,20 @@ ca06_identities_preserved() {
 criterion 1 "setup 당시 payments-api Pod UID가 남지 않음" \
   "res_absent_sel pods node-upgrade drain-probe=original"
 criterion 1 "worker2의 실제 kubeadm package와 binary가 $TARGET" \
-  "ca06_package_version kubeadm && [ \"\$(ca06_node_out 'kubeadm version -o short')\" = v1.35.0 ]"
+  "ca06_package_version kubeadm && [ \"\$(ca06_node_out 'kubeadm version -o short')\" = v1.37.0 ]"
 criterion 1 "kubeadm이 생성하는 kubelet config backup이 존재" \
   "ca06_upgrade_ran"
 criterion 1 "실제 kubelet·kubectl package와 binaries가 $TARGET" \
   "ca06_package_version kubelet && ca06_package_version kubectl && \
-   [ \"\$(ca06_node_out 'kubelet --version')\" = 'Kubernetes v1.35.0' ] && \
-   ca06_node_out 'kubectl version --client -o json' | grep -Fq '\"gitVersion\": \"v1.35.0\"'"
+   [ \"\$(ca06_node_out 'kubelet --version')\" = 'Kubernetes v1.37.0' ] && \
+   ca06_node_out 'kubectl version --client -o json' | grep -Fq '\"gitVersion\": \"v1.37.0\"'"
 criterion 1 "kubeadm·kubelet·kubectl이 다시 hold 상태" \
   "ca06_packages_held"
 criterion 1 "KIND kubelet 설정을 보존하고 package 설치 후 kubelet이 재시작되어 active" \
   "ca06_kubelet_restarted_after_install"
-criterion 1 "원본 Node·Deployment UID를 보존하고 worker2가 v1.35.0 Ready/schedulable" \
+criterion 1 "원본 Node·Deployment UID를 보존하고 worker2가 v1.37.0 Ready/schedulable" \
   "ca06_identities_preserved && node_ready '$NODE' && node_schedulable '$NODE' && \
-   [ \"\$(kctx get node '$NODE' -o jsonpath='{.status.nodeInfo.kubeletVersion}')\" = v1.35.0 ]"
+   [ \"\$(kctx get node '$NODE' -o jsonpath='{.status.nodeInfo.kubeletVersion}')\" = v1.37.0 ]"
 criterion 1 "payments-api가 원본 Deployment에서 2/2 Ready로 복귀" \
   "deploy_ready node-upgrade payments-api 2"
 

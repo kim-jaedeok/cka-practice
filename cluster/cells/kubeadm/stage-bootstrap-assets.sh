@@ -50,7 +50,7 @@ nodeRegistration:
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
-kubernetesVersion: v1.35.0
+kubernetesVersion: v1.37.0
 apiServer:
   certSANs:
     - 127.0.0.1

@@ -500,6 +500,8 @@ controller_bundle_load_into_cell() { # bundle <image...>
     [ "$role" = lb ] && continue
     node_id="${CELL_CONTAINER_IDS[$role]:-}"
     cell_docker_id_valid "$node_id" || die "controller cell node id is invalid: $role"
+    cell_node_drop_archive_index_ref "$node_id" "$bundle_path" \
+      || die "synthetic archive index reference could not be removed from $role: $bundle"
     for image in "$@"; do
       controller_node_publish_pinned_ref "$node_id" "$image" \
         || die "locked controller image manifest/config or canonical digest reference was not imported into $role: $image"

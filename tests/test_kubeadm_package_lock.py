@@ -34,30 +34,31 @@ class KubeadmPackageLockTest(unittest.TestCase):
         cls.lock = load_lock()
 
     def test_adjacent_minor_versions_and_official_repositories(self):
-        self.assertEqual(self.lock["from_version"], "1.34.0-1.1")
-        self.assertEqual(self.lock["to_version"], "1.35.0-1.1")
+        self.assertEqual(self.lock["from_version"], "1.36.0-1.1")
+        self.assertEqual(self.lock["to_version"], "1.37.0-1.1")
         self.assertEqual(
             self.lock["from_repository"],
-            "https://pkgs.k8s.io/core:/stable:/v1.34/deb",
+            "https://pkgs.k8s.io/core:/stable:/v1.36/deb",
         )
         self.assertEqual(
             self.lock["to_repository"],
-            "https://pkgs.k8s.io/core:/stable:/v1.35/deb",
+            "https://pkgs.k8s.io/core:/stable:/v1.37/deb",
         )
 
     def test_all_ten_packages_are_file_and_checksum_locked(self):
+        # Both v1.36 and v1.37 repositories publish kubernetes-cni 1.9.1.
         versions = {
-            "cri-tools": ("1.34.0-1.1", "1.35.0-1.1"),
-            "kubernetes-cni": ("1.7.1-1.1", "1.8.0-1.1"),
-            "kubeadm": ("1.34.0-1.1", "1.35.0-1.1"),
-            "kubelet": ("1.34.0-1.1", "1.35.0-1.1"),
-            "kubectl": ("1.34.0-1.1", "1.35.0-1.1"),
+            "cri-tools": ("1.36.0-1.1", "1.37.0-1.1"),
+            "kubernetes-cni": ("1.9.1-1.1", "1.9.1-1.1"),
+            "kubeadm": ("1.36.0-1.1", "1.37.0-1.1"),
+            "kubelet": ("1.36.0-1.1", "1.37.0-1.1"),
+            "kubectl": ("1.36.0-1.1", "1.37.0-1.1"),
         }
         official_sha256 = {
-            ("cri-tools", "from"): "90c1f4c9d602e904214fa4e6315b47687c7964a6bd1d2420e63b266233bba20c",
-            ("cri-tools", "to"): "325b0d3731cb1daf210da5026a1d9ea35f5d63cab156c8817c0e136e36a60788",
-            ("kubernetes-cni", "from"): "92aff22a4f49fa27a615353215a1602033de80ed908dd1f243270163e741b78a",
-            ("kubernetes-cni", "to"): "39fbccec875ea73bda221cc6777b1344733bd81c875aa1faa5271854f9c7f9c5",
+            ("cri-tools", "from"): "8cff9279de7767239e11bf9c21016579a4246e04e7da0c500c7a3f8491db986a",
+            ("cri-tools", "to"): "a8eeede0deadc3d9e8f72859732441bfc86fbe60688926ef5410f01338927b71",
+            ("kubernetes-cni", "from"): "4cd72d8cef4499d3dc410874287b40e8b4241e0772938c5820cbee37986c1d93",
+            ("kubernetes-cni", "to"): "4cd72d8cef4499d3dc410874287b40e8b4241e0772938c5820cbee37986c1d93",
         }
         for package, (from_version, to_version) in versions.items():
             key = package.replace("-", "_")
@@ -97,14 +98,14 @@ class KubeadmPackageLockTest(unittest.TestCase):
         self.assertIn("sha256sum --check --strict", cache)
 
     def test_blank_cells_preload_the_exact_kubeadm_pause_image(self):
-        self.assertEqual(self.lock["pause_image"], "registry.k8s.io/pause:3.10.1")
+        self.assertEqual(self.lock["pause_image"], "registry.k8s.io/pause:3.10.2")
         self.assertEqual(
             self.lock["pause_digest"],
-            "sha256:e5b941ef8f71de54dc3a13398226c269ba217d06650a21bd3afcf9d890cf1f41",
+            "sha256:412c4a7219cb8a299a37337f3d87810c5340095322e15594a1637785adad0f17",
         )
         self.assertEqual(
             self.lock["pause_image_id"],
-            "sha256:cd073f4c5f6a8e9dc6f3125ba00cf60819cae95c1ec84a1f146ee4a9cf9e803f",
+            "sha256:4a83b15d3ecfe0d916b2d0a7991bc2854a629b8097017c2ee1ff65b30ae4c07c",
         )
         cell = (CELL / "cell.sh").read_text(encoding="utf-8")
         cache = (CELL / "cache-packages.sh").read_text(encoding="utf-8")

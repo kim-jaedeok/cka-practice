@@ -31,9 +31,9 @@ class VersionLockTest(unittest.TestCase):
     def setUpClass(cls):
         cls.lock = read_flat_lock()
 
-    def test_kind_node_is_exact_v135_digest(self):
+    def test_kind_node_is_exact_v137_digest(self):
         image = self.lock["kind_node_image"]
-        self.assertRegex(image, r"^kindest/node:v1\.35\.\d+@sha256:[0-9a-f]{64}$")
+        self.assertRegex(image, r"^kindest/node:v1\.37\.\d+@sha256:[0-9a-f]{64}$")
         self.assertEqual(self.lock["kubernetes_version"], image.split(":", 1)[1].split("@", 1)[0])
 
     def test_kind_release_binary_is_exact_and_checksummed(self):
@@ -49,10 +49,10 @@ class VersionLockTest(unittest.TestCase):
                 r"^[0-9a-f]{64}$",
             )
 
-    def test_etcd_image_is_exact_v36_patch(self):
+    def test_etcd_image_is_exact_v37_patch(self):
         self.assertRegex(
             self.lock["etcd_image"],
-            r"^registry\.k8s\.io/etcd:3\.6\.\d+-\d+$",
+            r"^registry\.k8s\.io/etcd:3\.7\.\d+-\d+$",
         )
 
     def test_remote_manifests_use_versioned_release_urls(self):

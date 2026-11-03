@@ -8,7 +8,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICY = ROOT / "exam" / "readiness-policy.yaml"
-CURRICULUM = ROOT / "curriculum" / "cka-v1.35.yaml"
+CURRICULUM = ROOT / "curriculum" / "cka-v1.37.yaml"
 READINESS_DOC = ROOT / "docs" / "readiness-policy.md"
 SSH_LIVE = ROOT / "tests" / "ssh-supervised-live-test.sh"
 SSH_LIVE_VOLUME_LIFECYCLE = ROOT / "tests" / "ssh-live-volume-lifecycle.sh"
@@ -135,19 +135,30 @@ class ReadinessPolicyTest(unittest.TestCase):
 
     def test_readiness_document_tracks_live_registry_without_overclaiming(self):
         validation = self.curriculum["implementationValidation"]
+        current = validation["liveResults"]
         self.assertIn(validation["status"], self.readiness_doc)
+        self.assertIn(current["kubernetesVersion"], self.readiness_doc)
         for suite in validation["requiredLiveSuites"]:
             self.assertIn(suite, self.readiness_doc)
-        for item in validation["liveResults"]["passed"]:
+        if validation["status"] == "static-complete-live-pending":
+            self.assertTrue(current["pending"])
+            self.assertIn("live gate 재검증 전", self.readiness_doc)
+        else:
+            self.assertNotIn("static-complete-live-pending", self.readiness_doc)
+
+        # The older version's evidence stays documented as history, not as current.
+        previous = validation["previousLiveResults"]
+        self.assertIn(previous["kubernetesVersion"], self.readiness_doc)
+        for item in previous["passed"]:
             if item["suite"] == "tests/ssh-supervised-live-test.sh":
                 self.assertEqual(len(item["cases"]), 17)
                 continue
             for qid in item["cases"]:
                 self.assertIn(f"`{qid}`", self.readiness_doc)
-        self.assertEqual(validation["liveResults"]["pending"], [])
+        self.assertEqual(previous["pending"], [])
         ssh = next(
             item
-            for item in validation["liveResults"]["passed"]
+            for item in previous["passed"]
             if item["suite"] == "tests/ssh-supervised-live-test.sh"
         )
         for supporting in ssh["supportingChecksPassed"]:
@@ -158,7 +169,6 @@ class ReadinessPolicyTest(unittest.TestCase):
         self.assertIn("guard process를 강제로 종료한 뒤 재시작", self.readiness_doc)
         self.assertIn("저장소의 구현·live 검증 완료", self.readiness_doc)
         self.assertIn("공식 합격 보장이나 개인의 학습", self.readiness_doc)
-        self.assertNotIn("static-complete-live-pending", self.readiness_doc)
         self.assertNotIn("clean-host 전체 gate 미실행", self.readiness_doc)
         self.assertNotIn("guard readiness", self.readiness_doc)
         self.assertNotIn("현재 `ca-12`만", self.readiness_doc)

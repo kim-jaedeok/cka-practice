@@ -255,6 +255,8 @@ csi_preload_images() {
   [ -n "$nodes" ] || die "CSI cell has no nodes"
   while IFS= read -r node; do
     [ -n "$node" ] || continue
+    cell_node_drop_archive_index_ref "$node" "$bundle" \
+      || die "synthetic archive index reference could not be removed from $node"
     while IFS='|' read -r image digest image_id; do
       csi_node_publish_pinned_ref "$node" "$image" "$digest" "$image_id" \
         || die "locked CSI manifest/config or canonical digest reference was not imported into $node: $image"
