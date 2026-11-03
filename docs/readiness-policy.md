@@ -40,7 +40,12 @@ v1.37 갱신 중 upstream이 아직 v1.37을 공식 지원하지 않는 구성�
 |---|---|---|
 | cert-manager | v1.21.1 | Kubernetes 1.33~1.36 ([releases](https://cert-manager.io/docs/releases/)) |
 | Envoy Gateway | v1.9.0 | Kubernetes 1.33~1.36 ([matrix](https://gateway.envoyproxy.io/news/releases/matrix/)) |
-| ingress-nginx | controller-v1.15.1 | Kubernetes 1.31~1.35, 2026-03-24 archive ([README](https://github.com/kubernetes/ingress-nginx)) |
+| ingress-nginx | controller-v1.15.1 | Kubernetes 1.31~1.35, 2026-03-24 archive ([README](https://github.com/kubernetes/ingress-nginx)). 2026-11-04 v1.37 공유 클러스터에서 `sn-04`·`ts-11` selftest 통과 |
+
+v1.37 공유 클러스터 셋업 중 Calico v3.33.0의 image 구성 변경을 발견해 고쳤다. `install-cni`,
+`upgrade-ipam`, `calico-kube-controllers`는 `quay.io/calico/calico`를 쓰고, `cni-plugins` init
+container가 새로 생겼다. [`lib/addons.sh`](../lib/addons.sh)의 `addon_ok_calico`가 이 구성을
+검사한다. Cloud Provider KIND v0.11.1도 같은 클러스터에서 `sn-09` selftest를 통과했다.
 
 ## 이전 버전의 live 검증 기록 (Kubernetes v1.35.0)
 

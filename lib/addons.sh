@@ -947,13 +947,13 @@ addon_deploy_ready_with_image() { # <ns> <deployment> <exact-image>
 # 현재 generation을 모두 반영했고 lock 버전 이미지를 쓰는 경우에만 apply를 생략한다.
 addon_ok_calico() {
   local state generation observed desired updated ready misscheduled expected_nodes
-  local node_image cni_image upgrade_image bootstrap_image
+  local node_image cni_image upgrade_image bootstrap_image plugins_image
   local -a expected_node_names=()
   state="$(kctx -n kube-system get daemonset calico-node -o jsonpath=\
-'{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.status.desiredNumberScheduled}{"|"}{.status.updatedNumberScheduled}{"|"}{.status.numberReady}{"|"}{.status.numberMisscheduled}{"|"}{.spec.template.spec.containers[?(@.name=="calico-node")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="install-cni")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="upgrade-ipam")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="ebpf-bootstrap")].image}' \
+'{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.status.desiredNumberScheduled}{"|"}{.status.updatedNumberScheduled}{"|"}{.status.numberReady}{"|"}{.status.numberMisscheduled}{"|"}{.spec.template.spec.containers[?(@.name=="calico-node")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="install-cni")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="upgrade-ipam")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="ebpf-bootstrap")].image}{"|"}{.spec.template.spec.initContainers[?(@.name=="cni-plugins")].image}' \
     2>/dev/null)" || return 1
   IFS='|' read -r generation observed desired updated ready misscheduled \
-    node_image cni_image upgrade_image bootstrap_image <<< "$state"
+    node_image cni_image upgrade_image bootstrap_image plugins_image <<< "$state"
   mapfile -t expected_node_names < <(cka_node_names)
   expected_nodes="${#expected_node_names[@]}"
   [ "$expected_nodes" -gt 0 ] || return 1
@@ -963,11 +963,12 @@ addon_ok_calico() {
     && [ "${ready:-0}" = "$desired" ] \
     && [ "${misscheduled:-0}" -eq 0 ] \
     && [ "$node_image" = "quay.io/calico/node:$CALICO_VERSION" ] \
-    && [ "$cni_image" = "quay.io/calico/cni:$CALICO_VERSION" ] \
-    && [ "$upgrade_image" = "quay.io/calico/cni:$CALICO_VERSION" ] \
+    && [ "$cni_image" = "quay.io/calico/calico:$CALICO_VERSION" ] \
+    && [ "$upgrade_image" = "quay.io/calico/calico:$CALICO_VERSION" ] \
     && [ "$bootstrap_image" = "quay.io/calico/node:$CALICO_VERSION" ] \
+    && [ "$plugins_image" = "quay.io/calico/third-party-cni-plugins:$CALICO_VERSION" ] \
     && addon_deploy_ready_with_image kube-system calico-kube-controllers \
-      "quay.io/calico/kube-controllers:$CALICO_VERSION"
+      "quay.io/calico/calico:$CALICO_VERSION"
 }
 
 addon_install_calico() {

@@ -65,9 +65,10 @@ emit_deployment_state() { # <component> <healthy-image>
 emit_calico_daemonset_state() {
   local generation=9 observed=9 desired=3 updated=3 ready=3 misscheduled=0
   local node_image="quay.io/calico/node:$CALICO_VERSION"
-  local install_cni_image="quay.io/calico/cni:$CALICO_VERSION"
-  local upgrade_ipam_image="quay.io/calico/cni:$CALICO_VERSION"
+  local install_cni_image="quay.io/calico/calico:$CALICO_VERSION"
+  local upgrade_ipam_image="quay.io/calico/calico:$CALICO_VERSION"
   local bootstrap_image="quay.io/calico/node:$CALICO_VERSION"
+  local plugins_image="quay.io/calico/third-party-cni-plugins:$CALICO_VERSION"
   case "$DRIFT" in
     calico-generation) observed=8 ;;
     calico-readiness) ready=2 ;;
@@ -75,13 +76,15 @@ emit_calico_daemonset_state() {
     calico-updated) updated=2 ;;
     calico-misscheduled) misscheduled=1 ;;
     calico-image) node_image=quay.io/calico/node:v0.0.0 ;;
-    calico-install-cni-image) install_cni_image=quay.io/calico/cni:v0.0.0 ;;
-    calico-upgrade-ipam-image) upgrade_ipam_image=quay.io/calico/cni:v0.0.0 ;;
+    calico-install-cni-image) install_cni_image=quay.io/calico/calico:v0.0.0 ;;
+    calico-upgrade-ipam-image) upgrade_ipam_image=quay.io/calico/calico:v0.0.0 ;;
     calico-bootstrap-image) bootstrap_image=quay.io/calico/node:v0.0.0 ;;
+    calico-cni-plugins-image) plugins_image=quay.io/calico/third-party-cni-plugins:v0.0.0 ;;
   esac
-  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
     "$generation" "$observed" "$desired" "$updated" "$ready" "$misscheduled" \
-    "$node_image" "$install_cni_image" "$upgrade_ipam_image" "$bootstrap_image"
+    "$node_image" "$install_cni_image" "$upgrade_ipam_image" "$bootstrap_image" \
+    "$plugins_image"
 }
 
 emit_gateway_crds() {
@@ -177,7 +180,7 @@ kctx() {
       ;;
     *" get deploy calico-kube-controllers "*)
       emit_deployment_state calico-controller \
-        "quay.io/calico/kube-controllers:$CALICO_VERSION"
+        "quay.io/calico/calico:$CALICO_VERSION"
       ;;
     *" get deploy metrics-server "*)
       emit_deployment_state metrics \
@@ -438,7 +441,7 @@ expect_success 'Calico rejects generation, scheduling, readiness, and locked-ima
     calico-generation calico-updated calico-readiness calico-scope \
     calico-misscheduled \
     calico-image calico-install-cni-image calico-upgrade-ipam-image \
-    calico-bootstrap-image calico-controller-generation \
+    calico-bootstrap-image calico-cni-plugins-image calico-controller-generation \
     calico-controller-readiness calico-controller-image
 expect_success 'metrics-server rejects rollout, image, TLS-argument, and APIService drift' \
   reject_drifts addon_ok_metrics_server \
