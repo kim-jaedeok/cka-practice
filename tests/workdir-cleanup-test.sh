@@ -122,9 +122,12 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$TEST_ROOT/reset/cluster/setup-cluster
 warn() { :; }
 err() { printf '%s\n' "$*" >&2; }
 die() { err "$*"; exit 1; }
-declare -f workdir_clear_all workdir_clear workdir_root_resolve \
-  state_subdir_clear warn die err kind practice_files \
-  cloud_provider_kind_cleanup_cluster_loadbalancers > "$TEST_ROOT/reset/lib/common.sh"
+{
+  declare -p CKA_PRACTICE_ID_RE CKA_EXAM_BANK_ID_RE
+  declare -f workdir_clear_all workdir_clear workdir_root_resolve cka_question_id_valid \
+    state_subdir_clear warn die err kind practice_files \
+    cloud_provider_kind_cleanup_cluster_loadbalancers
+} > "$TEST_ROOT/reset/lib/common.sh"
 export CKA_CLUSTER_NAME=cka
 workdir_prepare ca-09
 printf answer > "$CKA_WORK_DIR/ca-09/issuer.yaml"

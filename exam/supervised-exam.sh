@@ -470,7 +470,7 @@ runner_materialize_work_roots() { # <questions-file>
   [ "$root" = "$requested" ] && [ -d "$root" ] || return 1
   while IFS= read -r qid; do
     [ -n "$qid" ] || continue
-    [[ "$qid" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
+    cka_question_id_valid "$qid" || return 1
     target="$root/$qid"
     [ ! -L "$target" ] || return 1
     if [ -e "$target" ]; then

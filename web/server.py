@@ -33,6 +33,9 @@ DOMAIN_ORDER = [
 ]
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+# 웹 UI는 연습 문제(questions/)만 다룬다. 시험 은행 ID(ex-...)는 받지 않는다.
+# lib/common.sh의 CKA_PRACTICE_ID_RE와 같은 규칙이다.
+PRACTICE_ID_RE = re.compile(r"(?:st|wl|sn|ca|ts)-[0-9]{2}")
 
 
 def strip_ansi(text):
@@ -102,6 +105,8 @@ def list_questions():
 
 
 def question_detail(qid):
+    if not PRACTICE_ID_RE.fullmatch(qid or ""):
+        return None
     for domain in DOMAIN_ORDER:
         qdir = os.path.join(QUESTIONS_DIR, domain, qid)
         if os.path.isdir(qdir):
@@ -221,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/action":
             cmd = payload.get("cmd", "")
             qid = payload.get("id", "")
-            if cmd not in ("start", "grade", "solution", "reset") or not re.fullmatch(r"[a-z]{2}-\d{2}", qid or ""):
+            if cmd not in ("start", "grade", "solution", "reset") or not PRACTICE_ID_RE.fullmatch(qid or ""):
                 return self._send(400, {"error": "invalid action"})
             if exam_actions_locked():
                 return self._send(409, {

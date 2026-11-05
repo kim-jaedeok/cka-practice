@@ -6,6 +6,10 @@ CKA_CONTEXT="${CKA_CONTEXT:-kind-cka}"
 CKA_CLUSTER_NAME="${CKA_CLUSTER_NAME:-cka}"
 CKA_STATE_DIR="${CKA_STATE_DIR:-$CKA_ROOT/.state}"
 CKA_WORK_DIR="${CKA_WORK_DIR:-$HOME/cka}"   # 파일 제출형 답안이 저장되는 위치
+CKA_EXAM_BANK_DIR="${CKA_EXAM_BANK_DIR:-$CKA_ROOT/exam/bank}"   # 시험 전용 문제 은행
+# 연습 문제(questions/)와 시험 은행 문제(exam/bank/)의 ID. 두 규칙은 겹치지 않는다.
+CKA_PRACTICE_ID_RE='^(st|wl|sn|ca|ts)-[0-9]{2}$'
+CKA_EXAM_BANK_ID_RE='^ex-(st|wl|sn|ca|ts)-[0-9]{2}$'
 CKA_LABEL_KEY="cka-practice/question"
 CKA_VERSIONS_LOCK="$CKA_ROOT/cluster/versions.lock.yaml"
 _CKA_INFRA_ACCOUNT_HOME=""
@@ -1050,9 +1054,14 @@ require_cluster() {
   repair_cluster
 }
 
-# 문제 ID → 도메인 디렉토리
+# 연습 문제와 시험 은행 문제 모두 문제 runtime helper(정리·작업 디렉토리)를 쓴다.
+cka_question_id_valid() {
+  [[ "${1:-}" =~ $CKA_PRACTICE_ID_RE ]] || [[ "${1:-}" =~ $CKA_EXAM_BANK_ID_RE ]]
+}
+
+# 문제 ID → 도메인 디렉토리 (시험 은행 ID는 ex- 접두사를 뗀 도메인을 쓴다)
 domain_of() {
-  case "$1" in
+  case "${1#ex-}" in
     st-*) echo storage ;;
     wl-*) echo workloads-scheduling ;;
     sn-*) echo services-networking ;;
@@ -1062,11 +1071,23 @@ domain_of() {
   esac
 }
 
+# 연습 문제 전용. 시험 은행 ID는 연습 명령(start/solution/list 등)이 찾지 못하게 거부한다.
 qdir_of() {
   local d p
+  [[ "${1:-}" =~ $CKA_PRACTICE_ID_RE ]] || return 1
   d="$(domain_of "$1")" || return 1
   p="$CKA_ROOT/questions/$d/$1"
   [ -d "$p" ] || return 1
+  printf '%s\n' "$p"
+}
+
+# 시험 은행 전용 resolver. 감독형 시험 runner만 사용한다.
+exam_bank_qdir_of() {
+  local d p
+  [[ "${1:-}" =~ $CKA_EXAM_BANK_ID_RE ]] || return 1
+  d="$(domain_of "$1")" || return 1
+  p="$CKA_EXAM_BANK_DIR/$d/$1"
+  [ -d "$p" ] && [ ! -L "$p" ] || return 1
   printf '%s\n' "$p"
 }
 
@@ -1147,7 +1168,7 @@ state_subdir_clear() { # <single-child-name>
 
 question_state_clear() { # <qid>
   local id="${1:-}" requested root question_root target
-  [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
+  cka_question_id_valid "$id" || return 1
   [ -n "${CKA_STATE_DIR:-}" ] && [[ "$CKA_STATE_DIR" = /* ]] || return 1
   requested="${CKA_STATE_DIR%/}"
   [ -n "$requested" ] && [ "$requested" != / ] && [ ! -L "$requested" ] || return 1
@@ -1170,7 +1191,7 @@ question_state_clear() { # <qid>
 # 해당 문제의 리소스 일괄 삭제 (idempotent한 setup을 위해 항상 먼저 호출)
 cleanup_question() {
   local id="$1" failed=0
-  [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
+  cka_question_id_valid "$id" || return 1
   kctx delete ns -l "$CKA_LABEL_KEY=$id" --ignore-not-found --wait=true \
     --timeout=90s >/dev/null 2>&1 || failed=1
   kctx delete pv,storageclass,priorityclass,clusterrole,clusterrolebinding \
@@ -1213,7 +1234,7 @@ workdir_root_resolve() {
 
 workdir_clear() { # <qid>
   local id="$1" root target
-  [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
+  cka_question_id_valid "$id" || return 1
   root="$(workdir_root_resolve)" || return 1
   target="$root/$id"
   if [ -L "$target" ]; then
@@ -1232,7 +1253,7 @@ workdir_reset() { # <qid>
 
 workdir_prepare() { # <qid>; preserve setup-provided files
   local id="$1" root target
-  [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || return 1
+  cka_question_id_valid "$id" || return 1
   root="$(workdir_root_resolve)" || return 1
   target="$root/$id"
   [ ! -L "$target" ] || return 1
@@ -1245,7 +1266,7 @@ workdir_clear_all() {
   root="$(workdir_root_resolve)" || return 1
   for target in "$root"/*; do
     id="${target##*/}"
-    [[ "$id" =~ ^(st|wl|sn|ca|ts)-[0-9]{2}$ ]] || continue
+    cka_question_id_valid "$id" || continue
     workdir_clear "$id" || failed=1
   done
   return "$failed"

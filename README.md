@@ -264,6 +264,7 @@ questions/<domain>/<id>/   # question.md(영어 지문) setup.sh(환경 구성)
 exam/mock-exam.sh          # 모의고사
 exam/planner.sh            # seed 기반 호환 form 생성·검증
 exam/forms/                # 문제 호환성 catalog
+exam/bank/                 # 시험 전용 문제 은행 (풀기 전에 열지 않기, exam/bank/README.md)
 exam/ssh/                  # 실제 base→target SSH + systemd 감독기
 exam/supervised-exam.sh    # 34문항 허용 목록 기반 감독형 runner
 images/base, images/target # 지정-host 컨테이너 이미지

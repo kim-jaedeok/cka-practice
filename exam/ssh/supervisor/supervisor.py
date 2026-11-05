@@ -47,7 +47,9 @@ MAX_INPUT_FILE_BYTES = 8 * 1024 * 1024
 MAX_INPUT_TOTAL_BYTES = 64 * 1024 * 1024
 MAX_INPUT_FILES = 2000
 RUN_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$")
-QUESTION_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+# Practice IDs (questions/) and exam bank IDs (exam/bank/), matching
+# CKA_PRACTICE_ID_RE and CKA_EXAM_BANK_ID_RE in lib/common.sh.
+QUESTION_ID_RE = re.compile(r"^(?:ex-)?(?:st|wl|sn|ca|ts)-[0-9]{2}$")
 FILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 RELATIVE_INPUT_RE = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")

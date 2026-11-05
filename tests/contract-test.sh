@@ -607,6 +607,36 @@ contract_etcd_tools_use_running_container_rootfs() {
 check "etcd tools are copied from the running container and setup fails closed" \
   contract_etcd_tools_use_running_container_rootfs
 
+contract_exam_bank_resolver_is_isolated() {
+  local bank out rc=0
+  bank="$(mktemp -d "${TMPDIR:-/tmp}/cka-bank-contract.XXXXXX")" || return 1
+  mkdir -p "$bank/storage/ex-st-01" "$bank/elsewhere" "$bank/state"
+  printf 'id: ex-st-01\n' > "$bank/storage/ex-st-01/meta.yaml"
+  printf 'BANK-ANSWER-MARKER\n' > "$bank/storage/ex-st-01/answer.md"
+  ln -s "$bank/elsewhere" "$bank/storage/ex-st-03"
+  (
+    CKA_EXAM_BANK_DIR="$bank"
+    [ "$(exam_bank_qdir_of ex-st-01)" = "$bank/storage/ex-st-01" ] \
+      && ! exam_bank_qdir_of st-01 >/dev/null \
+      && ! exam_bank_qdir_of ex-st-02 >/dev/null \
+      && ! exam_bank_qdir_of ex-st-03 >/dev/null \
+      && ! qdir_of ex-st-01 >/dev/null \
+      && [ "$(domain_of ex-ts-01)" = troubleshooting ] \
+      && cka_question_id_valid st-01 && cka_question_id_valid ex-st-01 \
+      && ! cka_question_id_valid smoke && ! cka_question_id_valid ex-xx-01
+  ) || rc=1
+  # The practice CLI must refuse a bank ID even when that question exists.
+  if out="$(CKA_EXAM_BANK_DIR="$bank" CKA_STATE_DIR="$bank/state" \
+      "$CKA_ROOT/cka" solution ex-st-01 2>&1)"; then
+    rc=1
+  fi
+  grep -Fq BANK-ANSWER-MARKER <<< "$out" && rc=1
+  rm -rf -- "$bank"
+  return "$rc"
+}
+check "exam bank questions resolve only through exam_bank_qdir_of" \
+  contract_exam_bank_resolver_is_isolated
+
 printf '%s\n' "══ all-question static contract ══"
 STATIC_OK=1
 mapfile -t META_FILES < <(find "$CKA_ROOT/questions" -type f -name meta.yaml | sort)

@@ -4,22 +4,23 @@
 필요한 만큼만 만든다. CKA 기준으로 과한 항목은 줄이거나 연기했고, 그 근거는 5절에 모았다.
 
 - **트랙 A: 시험 전용 문제 은행.** 모의고사를 연습 문제와 겹치지 않는 별도 은행에서
-  출제한다. 시험 문제는 공개 저장소 밖의 private 저장소에 두고, 감독형 SSH runner로만
+  출제한다. 시험 문제는 이 저장소의 `exam/bank/` 아래에 평문으로 두고, 감독형 SSH runner로만
   실행한다. 한 번 노출된 form은 다시 blind run으로 세지 않는다.
 - **트랙 B: 연습 문제 네트워크 보강.** GPU 인프라 엔지니어링의 기초가 되는 네트워크 개념 중
   CKA 범위 안의 것을 먼저 연습 문제로 보강한다. CKA 범위 밖의 GPU 네트워크 주제는 CKA 이후로
   연기한다.
 
-두 트랙은 서로 기다리지 않는다. 트랙 B는 결정 없이 바로 시작할 수 있다. 트랙 A는 6절의
-결정이 끝나야 시작한다.
+두 트랙은 서로 기다리지 않는다.
 
-**구현 상태 (2026-11-04)**
+**구현 상태 (2026-11-05)**
 
 | 항목 | 상태 |
 |---|---|
 | A-W0 | 완료. `cmd_question`은 `RUNNING`·`SEALED`·`COLLECTED`·`GRADED`에서만 본문을 출력한다. `tests/ssh-runner-faults.sh`에 회귀 테스트를 추가했다. |
 | 트랙 B N1~N6 | 완료. v1.37 공유 클러스터에서 문제마다 selftest(setup 비만점 → near-miss 부분 점수 → solve 만점)를 통과했다. |
-| A-W1 이후 | 6절 결정을 기다린다. |
+| 저장 위치 결정 | 확정(2026-11-05). 사용자가 저장소 평문 저장을 결정했다(A-D1). |
+| A-W1 | 완료(2026-11-05). `exam/bank/README.md`, `exam_bank_qdir_of`, 공용 ID 규칙(`CKA_PRACTICE_ID_RE`·`CKA_EXAM_BANK_ID_RE`)과 schema·supervisor·웹 UI 정렬, `tests/test_exam_bank.py`와 `tests/contract-test.sh`의 격리 검사. |
+| A-W2 이후 | 시작할 수 있다. A-W6만 6절 결정을 기다린다. |
 
 트랙 B 문제 ID: N1 `sn-11`, N2 `sn-12`, N3 `ts-16`, N4 `sn-13`, N5 `ts-17`, N6 `sn-14`.
 
@@ -31,27 +32,23 @@
 | G2 | 연습 문제 은행은 도메인 비율 대신 역량 커버리지만 기준으로 삼는다. |
 | G3 | GPU 인프라 엔지니어링의 기초 네트워크 개념을 연습 문제로 확실하게 익힌다. |
 | P1 | 현재 모의고사는 연습 문제 53개의 부분집합이다. 본문·setup·채점이 연습과 같다. → G1을 막는다. |
-| P2 | 이 저장소는 GitHub에서 PUBLIC이다. 평문 시험 문제를 commit하면 누구나 본다. → G1을 막는다. |
+| P2 | 이 저장소는 GitHub에서 PUBLIC이다. 평문 시험 문제를 commit하면 누구나 본다. 사용자는 이 점을 받아들이고 평문 저장을 결정했다(2026-11-05). → G1을 약하게 한다. |
 | P3 | 한 번 본 시험 문제를 다시 출제하면 blind가 아니다. → G1을 막는다. |
-| P4 | 시험 문제와 사용자는 같은 OS 사용자 아래에 있다. 완전한 비밀 유지는 불가능하다. 목표는 우발적 노출을 줄이는 것이다. → G1을 약하게 한다. |
 | P5 | 현재 네트워크 연습 문제는 Service·DNS·Policy·Ingress·Gateway 같은 API 수준에 모여 있다. node 안의 data path와 CNI 구성을 직접 관찰하는 문제가 없다. → G3을 막는다. |
 
 ## 2. 트랙 A: 시험 전용 문제 은행
 
-### A-D1. 저장 위치 (P2 해결, P4 일부 완화 → G1)
+### A-D1. 저장 위치 (사용자 결정 2026-11-05)
 
-권장안은 별도 private GitHub 저장소다. 예: `kim-jaedeok/cka-practice-exam-bank`.
+시험 문제는 이 저장소의 `exam/bank/<domain>/ex-<domain 약어>-NN/`에 평문으로 둔다.
+private 저장소, 암호화, 노출 경로 차단은 하지 않는다. 개인 학습용이므로 다음 규칙만 둔다.
 
-- local clone은 연습 저장소 밖에 둔다. 예: `~/.local/share/cka-practice/exam-bank`.
-  submodule은 쓰지 않는다. submodule의 작업 트리는 연습 저장소 안에 놓이기 때문이다.
-- 연습 저장소의 IDE 검색, `git log`, `git diff`에는 시험 문제가 나타나지 않는다.
-- 대안인 "연습 저장소 안의 암호화 archive"는 key 관리와 runtime 복호화 디렉터리 정리를
-  새로 구현해야 한다. 그래서 권장하지 않는다.
+- 사용자는 아직 풀지 않은 form의 `exam/bank/` 파일과 그 diff를 열지 않는다.
+- Claude는 `exam/bank/` 변경의 commit message와 대화 요약에 문제 본문이나 정답을 쓰지 않는다.
+  문제 ID, 도메인, 검증 결과만 쓴다.
+- form을 한 번 푼 뒤에는 그 form의 `answer.md`를 읽어도 된다.
 
-이 결정은 P4를 해결하지 않는다. 같은 OS 사용자는 clone을 직접 열 수 있다. 개인 학습용이므로
-"열지 않는다"는 규칙으로 충분하다고 판단한다(5절 A-1).
-
-### A-D2. 실행 경로 (P4 완화 → G1)
+### A-D2. 실행 경로 (G1)
 
 시험 form은 `cka exam-ssh`로만 실행한다. 기본 `cka exam`과 연습 명령은 시험 문제를
 다루지 않는다.
@@ -62,16 +59,13 @@
 | systemd timer가 deadline을 강제하고, 초과 run은 `TIMEOUT`이다. | 같은 문서 "실행 순서" |
 | 공식 시험의 지정-host 흐름과 같다. | [CKA·CKAD 중요 지침](https://docs.linuxfoundation.org/tc-docs/certification/tips-cka-and-ckad) |
 
-시험 run 동안 웹 UI는 끈다. 웹 터미널은 host에서 bash를 실행하므로
-([web/serve.sh](../web/serve.sh) 89행), 은행 디렉터리를 읽을 수 있다.
-
-### A-D3. 시험 문제 provider (P1 해결 → G1)
+### A-D3. 시험 문제 resolver (P1 해결 → G1)
 
 시험 문제는 공용 `qdir_of`에 fallback을 넣어 찾지 않는다. `qdir_of`는 연습 명령도 쓰기
-때문이다([cka](../cka) 293·312행). 대신 시험 전용 provider를 둔다.
+때문이다([cka](../cka) 293·312행). 대신 `exam/bank/`만 읽는 시험 전용 resolver를 둔다.
 
-- provider는 resolver, schema, catalog, 제출 파일 목록, cleanup을 한 묶음으로 제공한다.
-  모든 항목을 같은 은행 revision에서 읽는다.
+- resolver는 문제 디렉터리, schema, form manifest, 제출 파일 목록, cleanup을 `exam/bank/`에서
+  찾는다.
 - 현재 이 항목들은 연습 은행에 묶여 있다.
   - ID 정규식: [question.schema.json](../exam/question.schema.json) 11행,
     [planner.sh](../exam/planner.sh) 38행은 `^(st|wl|sn|ca|ts)-[0-9]{2}$`만 허용한다.
@@ -79,7 +73,7 @@
   - `lib/common.sh`의 `domain_of`, 정리 함수, 작업 디렉터리 함수
   - [exam/ssh/gated-form.sh](../exam/ssh/gated-form.sh)의 catalog와 제출 파일 목록
   - 각 문제 `setup.sh`의 상대 경로 `lib` source
-- 시험 문제 ID는 `ex-<domain 약어>-NN` 형식이다. 예: `ex-ts-01`. provider와 supervisor는 같은
+- 시험 문제 ID는 `ex-<domain 약어>-NN` 형식이다. 예: `ex-ts-01`. resolver와 supervisor는 같은
   정규식을 쓴다.
 - `cka list`, `cka start`, `cka solution`, 웹 UI는 시험 ID를 나열하거나 실행하지 않는다. 계약
   검사로 이를 고정한다.
@@ -117,19 +111,15 @@ form 하나는 17문항이다. 공식 시험은 15~20개 과제이고, 현재 �
 - run이 `INVALID`, `TIMEOUT`, crash로 끝나도 본문이 나갔으면 `EXPOSED`로 둔다.
 - `EXPOSED` form을 다시 시작하려면 `--allow-seen`이 필요하다. 그 run은 blind가 아니라고 기록한다.
 
-### A-D6. 노출 경로 차단 (P4 완화 → G1)
+### A-D6. 노출 경로 차단 (제거)
 
-| 경로 | 대책 |
-|---|---|
-| grader 설명 문구 | `criterion` 설명은 출력된다([lib/grader.sh](../lib/grader.sh)). 시험 문제의 설명에는 기대값을 쓰지 않는다. |
-| 상세 setup·grader 로그 | 후보자 결과에는 점수와 상태만 둔다. 상세 로그는 운영자 디렉터리에 둔다. |
-| 웹 터미널 | 시험 run 동안 웹 UI를 끈다(A-D2). |
-| 작성 세션 대화 기록 | 작성 세션은 은행 저장소에서 실행해 연습 저장소의 세션 기록과 섞이지 않게 한다. 사용자는 그 기록을 열지 않는다. |
+평문 저장 결정(A-D1)으로 이 항목은 하지 않는다. 문제 파일 자체가 저장소에 있으므로 로그·웹
+터미널·대화 기록을 따로 막아도 효과가 없다.
 
 ### A-D7. 작성과 검증 (G1)
 
-- 시험 문제는 별도 Claude 세션이 작성한다. 사용자는 그 세션의 대화와 private 저장소의 diff를
-  읽지 않는다.
+- 시험 문제는 별도 Claude 세션이 작성한다. 사용자는 그 세션의 대화를 읽지 않는다. 그 세션은
+  A-D1의 commit message 규칙을 따른다.
 - 문제마다 다음을 검증한다.
   1. `setup.sh` 직후 채점이 만점이 아니다.
   2. `solve.sh` 뒤 채점이 만점이다.
@@ -156,12 +146,12 @@ form 하나는 17문항이다. 공식 시험은 15~20개 과제이고, 현재 �
 | 작업 | 내용 | 해결 대상 | 선행 조건 |
 |---|---|---|---|
 | A-W0 | 현재 SSH runner의 `cmd_question`이 `RUNNING` 상태에서만 본문을 출력하게 고친다 | A-D5 | 없음 |
-| A-W1 | private 저장소, 시험 provider, ID 정규식 통일, 연습 명령·웹 UI 격리 계약 검사 | A-D1, A-D3 | 6절 결정 1 |
+| A-W1 | `exam/bank/` 디렉터리, 시험 resolver, ID 정규식 통일, 연습 명령·웹 UI가 시험 ID를 다루지 않는 계약 검사 | A-D1, A-D3 | 없음 |
 | A-W2 | form manifest, 노출 ledger, 결과의 도메인별 점수 | A-D4, A-D5, A-D8 | A-W1 |
 | A-W3 | form A 작성과 A-D7 검증 | A-D4, A-D7 | A-W2 |
 | A-W4 | etcd snapshot, kubelet 장애, kubeadm upgrade 같은 node 수준 대표 문제와 Helm 문제를 SSH runner에서 실행할 수 있게 확장 | 8절 한계 1 | A-W1 |
 | A-W5 | form B 작성. A-W4가 끝났으면 node 수준 문제를 포함한다 | A-D4 | A-W3 |
-| A-W6 | readiness 정책·문서 갱신 | A-D8 | A-W5 |
+| A-W6 | readiness 정책·문서 갱신 | A-D8 | A-W5, 6절 결정 |
 
 ## 3. 트랙 B: 연습 문제 네트워크 보강 (P5 해결 → G3)
 
@@ -233,7 +223,8 @@ CKA 응시 뒤에 다시 검토한다.
 
 ## 4. 두 트랙의 관계
 
-- 트랙 B의 연습 문제는 공개 저장소에 둔다. 트랙 A의 시험 문제와 섞지 않는다.
+- 트랙 B의 연습 문제는 `questions/`에, 트랙 A의 시험 문제는 `exam/bank/`에 둔다. 두 디렉터리를
+  섞지 않는다.
 - 시험 form을 만들 때 트랙 B 문제를 그대로 쓰지 않는다. 같은 개념을 다른 상황으로 바꾼
   새 문제를 쓴다.
 
@@ -244,6 +235,7 @@ CKA 응시 뒤에 다시 검토한다.
 
 | ID | 항목 | 판정 | 조치 |
 |---|---|---|---|
+| A-0 | private 저장소·암호화 archive·노출 경로 차단(A-D6) | 제거 | 사용자 결정(2026-11-05). 개인 학습용이므로 저장소 평문과 "열지 않는다" 규칙으로 충분하다. |
 | A-1 | 운영자·후보자 OS 계정 분리 | 제거 | 개인 학습에는 "열지 않는다" 규칙으로 충분하다. Colima·웹 UI 운영 비용만 는다. |
 | A-2 | 시험 form 4개(A·B·C + 예비 D, 68문항) | 축소 | form A·B(34문항)만 만든다. 세 번째 처음 보는 시험은 Killer.sh가 맡는다. |
 | A-3 | ledger의 `RESERVED` 상태, 은행 lock, fsync, private 저장소 이중 기록 | 축소 | 사용자 한 명이 순서대로 쓰므로 `AVAILABLE`/`EXPOSED` 두 상태와 "출력 전 기록"만 둔다. |
@@ -258,20 +250,16 @@ CKA 응시 뒤에 다시 검토한다.
 | B-3 | CNI 설정 장애 복구 문제 | 축소 | 기존 `ts-14`와 겹친다. N2는 값 하나를 찾아 저장하는 과제로 둔다. |
 | B-4 | 새 셀 profile `network-cell` | 제거 | N1~N6은 공유 클러스터에서 풀 수 있게 만든다. |
 
-## 6. 결정 요청 (시급도 순)
+## 6. 결정 요청
 
-1. **트랙 A 저장 위치**: private 저장소(권장)와 암호화 archive 중 하나를 고른다. A-W1이 이
-   결정을 기다린다.
-2. **트랙 A 작성자와 열람 규칙**: 별도 Claude 세션이 작성하고, 사용자는 그 대화와 diff를 읽지
-   않는 규칙을 받아들일지 정한다.
-3. **준비 기준 변경**: blind run을 3회에서 시험 form 2회로 줄이고 Killer.sh 조건을 유지하는
-   변경(A-D8)을 받아들일지 정한다.
-4. **시험 후 공개 범위**: `EXPOSED` form의 `answer.md`를 run 직후 보여 줄지, form B까지 끝난 뒤
-   보여 줄지 정한다.
+저장 위치, 작성자·열람 규칙, 정답 공개 시점은 A-D1로 정해졌다. 남은 결정은 하나다.
+
+1. **준비 기준 변경**: blind run을 3회에서 시험 form 2회로 줄이고 Killer.sh 조건을 유지하는
+   변경(A-D8)을 받아들일지 정한다. A-W6만 이 결정을 기다린다.
 
 ## 7. 바로 할 수 있는 일
 
-A-W0과 B-W1~B-W4는 끝났다(1절 앞의 구현 상태 참조). 남은 일은 모두 6절의 결정을 기다린다.
+A-W0, A-W1, B-W1~B-W4는 끝났다(1절 앞의 구현 상태 참조). A-W2~A-W5는 지금 시작할 수 있다.
 
 ## 8. 한계와 위험
 
@@ -281,8 +269,8 @@ A-W0과 B-W1~B-W4는 끝났다(1절 앞의 구현 상태 참조). 남은 일은 
    Cluster Architecture를 약하게 측정한다.
 2. **같은 작성자.** 시험 문제도 Claude가 만든다. 문제 표현과 난이도가 실제 시험과 다를 수
    있다. 외부 검증으로 Killer.sh simulator가 계속 필요하다.
-3. **우발적 노출만 줄인다.** 같은 OS 사용자는 private clone을 직접 열 수 있다. 이 설계는
-   일부러 보는 것을 막지 않는다.
+3. **"열지 않는다" 규칙에만 의존한다.** 시험 문제는 public 저장소에 평문으로 있다. 사용자와
+   다른 누구든 언제든 볼 수 있다. blind 여부는 사용자가 규칙을 지키는지에 달려 있다.
 4. **실행 host.** `cka exam-ssh`는 systemd user manager와 login linger를 요구한다. Colima
    Ubuntu VM에서 이 runner를 실행한 기록은 아직 없다(미확인).
 5. **GPU 네트워크는 기초까지만.** 트랙 B는 CKA 범위의 Kubernetes 네트워크 기초만 다룬다.

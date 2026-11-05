@@ -19,7 +19,7 @@ STATE_ROOT="$TEST_ROOT/state"
 RUN_ID="runner-smoke-$$"
 
 case "$TEST_ROOT" in /tmp/cka-ssh-runner-docker.*) ;; *) printf 'unsafe test root\n' >&2; exit 1 ;; esac
-install -d -m 0700 "$STATE_ROOT" "$TEST_ROOT/work/smoke"
+install -d -m 0700 "$STATE_ROOT" "$TEST_ROOT/work/ts-01"
 
 cleanup() {
   CKA_SSH_SUPERVISOR_STATE_ROOT="$STATE_ROOT" bash "$SESSION" seal \
@@ -46,7 +46,7 @@ CKA_SSH_SUPERVISOR_STATE_ROOT="$STATE_ROOT" bash "$SESSION" preflight >/dev/null
 
 kind get kubeconfig --internal --name "$CLUSTER_NAME" > "$TEST_ROOT/kubeconfig.yaml"
 chmod 0600 "$TEST_ROOT/kubeconfig.yaml"
-printf 'immutable-seed\n' > "$TEST_ROOT/work/smoke/seed.txt"
+printf 'immutable-seed\n' > "$TEST_ROOT/work/ts-01/seed.txt"
 network_id="$(docker container inspect "${CLUSTER_NAME}-control-plane" | python3 -c '
 import json,re,sys
 r=json.load(sys.stdin)
@@ -56,10 +56,10 @@ if len(ids)!=1 or not re.fullmatch(r"[0-9a-f]{64}",next(iter(ids)) or ""): raise
 print(next(iter(ids)))
 ')" || { printf 'Cannot resolve the exact KIND network ID\n' >&2; exit 1; }
 
-python3 - "$TEST_ROOT/input.json" "$TEST_ROOT/kubeconfig.yaml" "$TEST_ROOT/work/smoke" <<'PY'
+python3 - "$TEST_ROOT/input.json" "$TEST_ROOT/kubeconfig.yaml" "$TEST_ROOT/work/ts-01" <<'PY'
 import json, os, sys
-value={"schema_version":1,"active_question":"smoke","questions":[{
-    "question_id":"smoke","kubeconfig":os.path.realpath(sys.argv[2]),
+value={"schema_version":1,"active_question":"ts-01","questions":[{
+    "question_id":"ts-01","kubeconfig":os.path.realpath(sys.argv[2]),
     "work_root":os.path.realpath(sys.argv[3])}]}
 payload=(json.dumps(value,sort_keys=True,separators=(",",":"))+"\n").encode()
 fd=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o400)
@@ -70,23 +70,23 @@ PY
 CKA_SSH_SUPERVISOR_STATE_ROOT="$STATE_ROOT" bash "$SESSION" start \
   --run-id "$RUN_ID" --duration-seconds 120 \
   --input-manifest "$TEST_ROOT/input.json" --external-network-id "$network_id" \
-  --answer smoke:proof.txt --base-image "$BASE_IMAGE" --target-image "$TARGET_IMAGE" >/dev/null
+  --answer ts-01:proof.txt --base-image "$BASE_IMAGE" --target-image "$TARGET_IMAGE" >/dev/null
 
 entry="$(CKA_SSH_SUPERVISOR_STATE_ROOT="$STATE_ROOT" bash "$SESSION" candidate-entry --run-id "$RUN_ID")"
 base_id="$(printf '%s' "$entry" | python3 -c 'import json,re,sys; v=json.load(sys.stdin)["base_container_id"]; print(v) if re.fullmatch(r"[0-9a-f]{64}",v) else sys.exit(1)')"
 docker container exec --user candidate "$base_id" ssh -o BatchMode=yes cka-target '
   set -eu
-  test "$(cat /home/candidate/.kube/active-question)" = smoke
-  test "$(cat /home/candidate/cka/smoke/seed.txt)" = immutable-seed
+  test "$(cat /home/candidate/.kube/active-question)" = ts-01
+  test "$(cat /home/candidate/cka/ts-01/seed.txt)" = immutable-seed
   kubectl --request-timeout=10s get namespace kube-system >/dev/null
-  printf "collected-via-designated-host\n" > /home/candidate/cka/smoke/proof.txt
+  printf "collected-via-designated-host\n" > /home/candidate/cka/ts-01/proof.txt
 '
 
 CKA_SSH_SUPERVISOR_STATE_ROOT="$STATE_ROOT" bash "$SESSION" seal --run-id "$RUN_ID" --reason manual >/dev/null
 CKA_SSH_SUPERVISOR_STATE_ROOT="$STATE_ROOT" bash "$SESSION" collect \
   --run-id "$RUN_ID" --destination "$TEST_ROOT/collected" >/dev/null
 CKA_SSH_SUPERVISOR_STATE_ROOT="$STATE_ROOT" bash "$SESSION" authorize-grade --run-id "$RUN_ID" >/dev/null
-[ "$(cat "$TEST_ROOT/collected/smoke/proof.txt")" = collected-via-designated-host ] \
+[ "$(cat "$TEST_ROOT/collected/ts-01/proof.txt")" = collected-via-designated-host ] \
   || { printf 'Collected answer differs from the designated-host write\n' >&2; exit 1; }
 
 CKA_SSH_SUPERVISOR_STATE_ROOT="$STATE_ROOT" bash "$SESSION" cleanup --run-id "$RUN_ID" >/dev/null
