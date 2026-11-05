@@ -1,0 +1,21 @@
+# Exam bank form A: id|setup_priority|mutex|breaks|requires
+# Display order is line order. Every question uses its own namespaces and
+# uniquely named cluster-scoped objects; none breaks a shared component.
+# `requires` documents the shared dependencies the graders rely on.
+ex-ts-01|100|||
+ex-wl-01|100|||
+ex-sn-01|100|||dns,unmanaged-pod-survival
+ex-ca-01|100|||
+ex-st-01|100|||
+ex-ts-02|100|||
+ex-ca-02|100|||
+ex-wl-02|100|||
+ex-sn-02|100|||dns,ingress-controller
+ex-ts-03|100|||
+ex-ca-03|100|||
+ex-st-02|100|||default-storageclass
+ex-ts-04|100|||dns
+ex-sn-03|100|||dns,unmanaged-pod-survival,network-policy
+ex-wl-03|100|||two-schedulable-workers
+ex-ca-04|100|||csr-signer
+ex-ts-05|100|||dns

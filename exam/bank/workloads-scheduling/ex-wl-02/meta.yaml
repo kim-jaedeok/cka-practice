@@ -1,0 +1,8 @@
+id: ex-wl-02
+title: Combine ConfigMap and Secret keys in one volume
+domain: workloads-scheduling
+points: 7
+minutes: 7
+environment: shared-kind
+isolation: namespace
+mock_exam: true

@@ -1,0 +1,8 @@
+id: ex-sn-02
+title: Route two hosts and an exact path through one Ingress
+domain: services-networking
+points: 6
+minutes: 7
+environment: shared-kind
+isolation: namespace
+mock_exam: true

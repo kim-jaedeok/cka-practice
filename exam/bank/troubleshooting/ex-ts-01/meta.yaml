@@ -1,0 +1,8 @@
+id: ex-ts-01
+title: Deployment creates no Pods
+domain: troubleshooting
+points: 5
+minutes: 5
+environment: shared-kind
+isolation: namespace
+mock_exam: true

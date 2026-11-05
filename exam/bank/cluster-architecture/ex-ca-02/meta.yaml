@@ -1,0 +1,8 @@
+id: ex-ca-02
+title: Allow a ServiceAccount to scale one Deployment only
+domain: cluster-architecture
+points: 7
+minutes: 7
+environment: shared-kind
+isolation: namespace
+mock_exam: true

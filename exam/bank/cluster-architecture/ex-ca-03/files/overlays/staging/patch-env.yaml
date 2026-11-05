@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+spec:
+  template:
+    spec:
+      containers:
+        - name: catalog
+          env:
+            - name: MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: catalog-settings
+                  key: MODE

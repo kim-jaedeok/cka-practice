@@ -1,0 +1,8 @@
+id: ex-wl-01
+title: Roll out a new image with a zero-downtime strategy
+domain: workloads-scheduling
+points: 7
+minutes: 6
+environment: shared-kind
+isolation: namespace
+mock_exam: true

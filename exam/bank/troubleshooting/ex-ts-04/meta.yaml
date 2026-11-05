@@ -1,0 +1,8 @@
+id: ex-ts-04
+title: Some requests to a Service fail
+domain: troubleshooting
+points: 7
+minutes: 6
+environment: shared-kind
+isolation: namespace
+mock_exam: true

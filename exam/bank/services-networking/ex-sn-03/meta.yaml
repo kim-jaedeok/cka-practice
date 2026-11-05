@@ -1,0 +1,8 @@
+id: ex-sn-03
+title: Allow different peers on different ports with one NetworkPolicy
+domain: services-networking
+points: 9
+minutes: 8
+environment: shared-kind
+isolation: namespace
+mock_exam: true

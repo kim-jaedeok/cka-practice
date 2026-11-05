@@ -1,0 +1,9 @@
+id: ex-ts-03
+title: Batch Job fails before producing its report
+domain: troubleshooting
+points: 7
+minutes: 7
+environment: shared-kind
+isolation: namespace
+mock_exam: true
+answer_files: ["job-error.log"]

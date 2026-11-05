@@ -1,0 +1,8 @@
+id: ex-ca-01
+title: Define a CustomResourceDefinition with validation
+domain: cluster-architecture
+points: 8
+minutes: 9
+environment: shared-kind
+isolation: cluster-scope
+mock_exam: true

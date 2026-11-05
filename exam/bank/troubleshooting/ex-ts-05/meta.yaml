@@ -1,0 +1,8 @@
+id: ex-ts-05
+title: Pods never become Ready after a DNS change
+domain: troubleshooting
+points: 6
+minutes: 6
+environment: shared-kind
+isolation: namespace
+mock_exam: true

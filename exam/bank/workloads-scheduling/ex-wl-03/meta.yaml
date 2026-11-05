@@ -1,0 +1,8 @@
+id: ex-wl-03
+title: Co-locate and spread Pods with inter-Pod affinity
+domain: workloads-scheduling
+points: 7
+minutes: 7
+environment: shared-kind
+isolation: namespace
+mock_exam: true
