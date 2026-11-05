@@ -34,6 +34,34 @@ runner는 다음을 검사하고, 하나라도 어기면 준비를 거부한다.
 
 제출 파일은 각 문제의 `meta.yaml` `answer_files`에 적는다.
 
+## node 수준 문제와 Helm 문제
+
+시험 target에는 node shell(`ssh <node>`)이 없다. node 파일시스템이 필요한 문제는 Kubernetes 공식
+방법인 `kubectl debug node`를 쓴다. debug Pod는 node의 root 파일시스템을 `/host`에 mount한다
+([Debugging Kubernetes Nodes With Kubectl](https://kubernetes.io/docs/tasks/debug/debug-cluster/kubectl-node-debug/)).
+
+```bash
+kubectl debug node/cka-control-plane -it --image=busybox:1.36 -- chroot /host bash
+```
+
+2026-11-06 v1.37 공유 클러스터에서 target image로 확인한 범위는 다음과 같다.
+
+- control-plane node: `etcdctl`(3.7.0), `/etc/kubernetes/manifests`의 static Pod manifest
+- worker node: `/var/lib/kubelet/config.yaml`, `crictl`
+- TTY 대화형 진입(`-it`)
+
+이 방법은 대상 node의 kubelet이 Pod를 실행할 수 있어야 동작한다. 그래서 다음 문제는 시험
+은행에 넣지 않고 연습 문제(일회용 셀)로만 둔다.
+
+- kubelet을 멈추거나 망가뜨리는 문제
+- kubeadm upgrade·init·join처럼 node를 다시 구성하는 문제
+
+target image에는 Helm v3.22.1이 있다. target에는 chart 저장소 접속을 기대하지 않는다. Helm
+문제는 setup이 chart를 작업 디렉터리(`~/cka/<id>/`)에 넣어 주고, 그 local chart를 설치하게 한다.
+
+node나 control plane을 바꾸는 문제는 teardown에서 원래 상태로 되돌리고, form 파일의
+`breaks`·`requires`로 다른 문제와의 충돌을 표시한다.
+
 ## 실행과 노출 기록
 
 ```bash

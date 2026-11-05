@@ -122,5 +122,20 @@ class VersionLockTest(unittest.TestCase):
             )
 
 
+    def test_ssh_target_helm_matches_lock(self):
+        # The designated-host image installs the same Helm archive as cluster setup.
+        dockerfile = (ROOT / "images" / "target" / "Dockerfile").read_text(encoding="utf-8")
+
+        def arg(name):
+            match = re.search(rf"^ARG {name}=(\S+)$", dockerfile, re.MULTILINE)
+            self.assertIsNotNone(match, name)
+            return match.group(1)
+
+        self.assertEqual(arg("HELM_VERSION"), self.lock["helm_version"])
+        self.assertEqual(arg("HELM_SHA256_AMD64"), self.lock["helm_linux_amd64_sha256"])
+        self.assertEqual(arg("HELM_SHA256_ARM64"), self.lock["helm_linux_arm64_sha256"])
+        self.assertIn(f'org.cka-practice.tool.helm="{self.lock["helm_version"]}"', dockerfile)
+
+
 if __name__ == "__main__":
     unittest.main()

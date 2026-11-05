@@ -7,12 +7,17 @@ ARG KUBECTL_SHA256_ARM64=922df28df248cc00a9e025f947704f1d1482de64ece54cfe57e61f1
 ARG YQ_VERSION=v4.48.2
 ARG YQ_SHA256_AMD64=0ffc35320180d4911bc3a772934da508715e08af444cb33d4d43660065e25bcc
 ARG YQ_SHA256_ARM64=3c21630fda217239a5b7d718d08f08e02503098230b3abd49195d315a6dcfe45
+# Same Helm release and archive checksums as cluster/versions.lock.yaml.
+ARG HELM_VERSION=v3.22.1
+ARG HELM_SHA256_AMD64=896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
+ARG HELM_SHA256_ARM64=4c29e286b279d170fa048ddfc3e4e83dcd069ca9c52102766ba672d7149e694d
 
 LABEL org.opencontainers.image.title="cka-practice designated SSH target" \
       org.cka-practice.ssh-image-role="target" \
       org.cka-practice.base.release="ubuntu-24.04" \
       org.cka-practice.tool.kubectl="v1.37.0" \
-      org.cka-practice.tool.yq="v4.48.2"
+      org.cka-practice.tool.yq="v4.48.2" \
+      org.cka-practice.tool.helm="v3.22.1"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/root
@@ -30,8 +35,8 @@ RUN apt-get update \
 
 RUN set -eux; \
     case "$TARGETARCH" in \
-      amd64) kubectl_sha="$KUBECTL_SHA256_AMD64"; yq_sha="$YQ_SHA256_AMD64" ;; \
-      arm64) kubectl_sha="$KUBECTL_SHA256_ARM64"; yq_sha="$YQ_SHA256_ARM64" ;; \
+      amd64) kubectl_sha="$KUBECTL_SHA256_AMD64"; yq_sha="$YQ_SHA256_AMD64"; helm_sha="$HELM_SHA256_AMD64" ;; \
+      arm64) kubectl_sha="$KUBECTL_SHA256_ARM64"; yq_sha="$YQ_SHA256_ARM64"; helm_sha="$HELM_SHA256_ARM64" ;; \
       *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     curl --proto '=https' --tlsv1.2 --fail --show-error --silent --location \
@@ -45,7 +50,13 @@ RUN set -eux; \
       --output /tmp/yq; \
     echo "${yq_sha}  /tmp/yq" | sha256sum --check --strict; \
     install -o root -g root -m 0755 /tmp/yq /usr/local/bin/yq; \
-    rm -f /tmp/kubectl /tmp/yq
+    curl --proto '=https' --tlsv1.2 --fail --show-error --silent --location \
+      "https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz" \
+      --output /tmp/helm.tar.gz; \
+    echo "${helm_sha}  /tmp/helm.tar.gz" | sha256sum --check --strict; \
+    tar -xzf /tmp/helm.tar.gz -C /tmp "linux-${TARGETARCH}/helm"; \
+    install -o root -g root -m 0755 "/tmp/linux-${TARGETARCH}/helm" /usr/local/bin/helm; \
+    rm -rf /tmp/kubectl /tmp/yq /tmp/helm.tar.gz "/tmp/linux-${TARGETARCH}"
 
 COPY files/sshd_config /etc/ssh/sshd_config
 COPY files/cka-bashrc /etc/cka/bashrc
@@ -63,6 +74,7 @@ RUN chmod 0644 /etc/ssh/sshd_config /etc/cka/bashrc \
     && /usr/sbin/sshd -t \
     && kubectl version --client \
     && yq --version \
+    && helm version --short \
     # The server remains, but the target deliberately has no outbound SSH client.
     && rm -f /usr/bin/ssh /usr/bin/slogin /usr/bin/scp /usr/bin/sftp \
     && ! command -v ssh >/dev/null 2>&1 \

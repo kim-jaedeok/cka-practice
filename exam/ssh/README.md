@@ -25,6 +25,10 @@
 [`answer-files.tsv`](answer-files.tsv)에 정의한다. 이 모드는 일회용 셀 문제 7개를 포함하지
 않으며, 기본 `cka exam`의 41개 공유 후보 pool과도 동일하지 않다.
 
+위 허용 목록은 연습 문제 form에만 적용한다. 시험 은행 form(`--form`)은 target image의 Helm과
+`kubectl debug node`로 node 파일시스템에 닿는 문제를 포함할 수 있다. 범위와 한계는
+[`exam/bank/README.md`](../bank/README.md)의 "node 수준 문제와 Helm 문제"에 있다.
+
 ## 사전 조건
 
 - Linux/WSL (Windows Subsystem for Linux)에서 실행 중인 Docker Engine과 준비된
@@ -161,6 +165,7 @@ contract와 별도 runner smoke는 계속 빠른 보조 회귀 검사로 사용�
 | kubectl arm64 | `v1.37.0`, `922df28d…eef3` | 다운로드 후 SHA-256 |
 | yq amd64 | `v4.48.2`, `0ffc3532…25bcc` | 다운로드 후 SHA-256 |
 | yq arm64 | `v4.48.2`, `3c21630f…cfe45` | 다운로드 후 SHA-256 |
+| Helm amd64·arm64 | `v3.22.1`, `cluster/versions.lock.yaml`과 같은 archive checksum | 다운로드 후 SHA-256, `tests/test_version_lock.py`가 lock과 대조 |
 
 공식 근거:
 [kubectl Linux 설치](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/) ·

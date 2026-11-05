@@ -61,6 +61,7 @@ ssh_exam_require_image_role "$base_image" base
 ssh_exam_require_image_role "$target_image" target
 ssh_exam_require_image_label "$target_image" org.cka-practice.tool.kubectl v1.37.0
 ssh_exam_require_image_label "$target_image" org.cka-practice.tool.yq v4.48.2
+ssh_exam_require_image_label "$target_image" org.cka-practice.tool.helm v3.22.1
 
 prefix="$(ssh_exam_prefix "$run_id")"
 base_container="${prefix}-base"

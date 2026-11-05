@@ -21,7 +21,8 @@
 | 저장 위치 결정 | 확정(2026-11-05). 사용자가 저장소 평문 저장을 결정했다(A-D1). |
 | A-W1 | 완료(2026-11-05). `exam/bank/README.md`, `exam_bank_qdir_of`, 공용 ID 규칙(`CKA_PRACTICE_ID_RE`·`CKA_EXAM_BANK_ID_RE`)과 schema·supervisor·웹 UI 정렬, `tests/test_exam_bank.py`와 `tests/contract-test.sh`의 격리 검사. |
 | A-W2 | 완료(2026-11-06). `cka exam-ssh prepare --form NAME [--allow-seen]`, form 검증(17문항·5/4/3/3/2·호환성·shared-kind), 노출 ledger, 은행 문제의 `answer_files`, `result.json`(도메인별 점수·blind·`readinessPass`). `tests/ssh-runner-faults.sh` 23~26. |
-| A-W3 이후 | 진행 중. |
+| A-W3 | 진행 중(별도 세션). |
+| A-W4 | 완료(2026-11-06). target image에 Helm v3.22.1 추가. node 파일시스템은 `kubectl debug node … -- chroot /host`로 접근(control-plane etcdctl·static Pod manifest, worker kubelet 설정·crictl, TTY 진입을 v1.37 공유 클러스터에서 확인). kubelet 정지·kubeadm 재구성 문제는 이 방법으로 풀 수 없어 연습 셀에만 둔다. |
 
 트랙 B 문제 ID: N1 `sn-11`, N2 `sn-12`, N3 `ts-16`, N4 `sn-13`, N5 `ts-17`, N6 `sn-14`.
 
@@ -264,10 +265,11 @@ A-W0, A-W1, B-W1~B-W4는 끝났다(1절 앞의 구현 상태 참조). A-W2~A-W5�
 
 ## 8. 한계와 위험
 
-1. **node 수준·Helm 문제 부족(트랙 A).** 현재 SSH runner는 node shell, Helm, 일회용 셀 문제를
-   제외한다([exam/ssh/README.md](../exam/ssh/README.md) 13행). 그런데 CKA 역량에는 "Use Helm and
-   Kustomize to install cluster components"가 있다. A-W4 전까지 시험 form은 Troubleshooting과
-   Cluster Architecture를 약하게 측정한다.
+1. **node 수준 문제의 범위(트랙 A).** A-W4로 Helm과 `kubectl debug node`를 쓰는 문제는 시험
+   form에 넣을 수 있다. 그러나 kubelet이 멈춘 node에는 debug Pod를 띄울 수 없고, kubeadm
+   재구성은 공유 클러스터에서 할 수 없다. 그래서 시험 form은 이 두 영역(Troubleshooting의 node
+   장애, Cluster Architecture의 kubeadm lifecycle)을 측정하지 못한다. 이 영역은 연습 셀
+   (`ts-05`, `ts-14`, `ca-06`, `ca-11`, `ca-12`)과 Killer.sh로 확인한다.
 2. **같은 작성자.** 시험 문제도 Claude가 만든다. 문제 표현과 난이도가 실제 시험과 다를 수
    있다. 외부 검증으로 Killer.sh simulator가 계속 필요하다.
 3. **"열지 않는다" 규칙에만 의존한다.** 시험 문제는 public 저장소에 평문으로 있다. 사용자와
