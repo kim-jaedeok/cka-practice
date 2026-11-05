@@ -556,4 +556,125 @@ grep -q '100%.*TIMEOUT' "$case_root/run/score.txt" || fail 'deadline perfect sco
 [ "$(cat "$case_root/runner-phase")" = GRADED ] || fail 'deadline diagnostic grading did not complete'
 ok 'deadline-sealed perfect diagnostic score remains TIMEOUT/non-pass'
 
+# Fixed exam bank forms: 17 distinct shared-kind questions, 5/4/3/3/2 by domain,
+# planner-compatible metadata, and a setup order sorted by priority.
+case_root="$(new_case bank-form)"
+bank="$case_root/bank"
+manifest_lines=()
+for spec in ts:5:troubleshooting ca:4:cluster-architecture sn:3:services-networking \
+    wl:3:workloads-scheduling st:2:storage; do
+  IFS=: read -r abbr count domain <<< "$spec"
+  for n in $(seq 1 "$count"); do
+    qid="ex-$abbr-0$n"
+    mkdir -p "$bank/$domain/$qid"
+    printf 'id: %s\ndomain: %s\npoints: 5\n' "$qid" "$domain" > "$bank/$domain/$qid/meta.yaml"
+    manifest_lines+=("$qid|$((200 - ${#manifest_lines[@]}))|||")
+  done
+done
+mkdir -p "$bank/forms"
+printf '%s\n' "${manifest_lines[@]}" > "$bank/forms/A.tsv"
+bank_build() { # <form> -> rc; writes $case_root/questions and setup-order
+  CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_DIR="$bank" RUNNER_UNDER_TEST="$RUNNER" \
+    CASE_ROOT="$case_root" FORM="$1" bash -c '
+      source "$RUNNER_UNDER_TEST"
+      bank_form_build "$FORM" "$CASE_ROOT/questions" "$CASE_ROOT/setup-order"
+    ' >/dev/null 2>&1
+}
+bank_build A || fail 'valid bank form was rejected'
+[ "$(wc -l < "$case_root/questions")" -eq 17 ] || fail 'bank form did not emit 17 questions'
+[ "$(head -n 1 "$case_root/questions")" = ex-ts-01 ] || fail 'bank form display order changed'
+[ "$(head -n 1 "$case_root/setup-order")" = ex-st-02 ] || fail 'bank setup order ignores priority'
+grep -v '^ex-ts-05|' "$bank/forms/A.tsv" > "$bank/forms/B.tsv"
+! bank_build B || fail 'bank form with a wrong domain split was accepted'
+{ cat "$bank/forms/B.tsv"; printf 'ex-ts-01|1|||\n'; } > "$bank/forms/C.tsv"
+! bank_build C || fail 'bank form with a duplicate question was accepted'
+sed -e 's/^ex-ts-01|\([0-9]*\)|||$/ex-ts-01|\1|node-drain||/' \
+  -e 's/^ex-ca-01|\([0-9]*\)|||$/ex-ca-01|\1|node-drain||/' "$bank/forms/A.tsv" > "$bank/forms/D.tsv"
+! bank_build D || fail 'bank form with a mutex conflict was accepted'
+printf 'environment: kubeadm-ha\n' >> "$bank/storage/ex-st-01/meta.yaml"
+! bank_build A || fail 'bank form with a disposable-cell question was accepted'
+! bank_build a || fail 'lowercase bank form name was accepted'
+ok 'bank forms enforce 17 questions, 5/4/3/3/2 domains, compatibility and shared-kind'
+
+# Exposure ledger: a started form is recorded; reuse needs --allow-seen and is not blind.
+ledger="$case_root/ledger/ledger.tsv"
+bank_guard() { # <form> <allow-seen> -> prints blind flag
+  CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_LEDGER="$ledger" RUNNER_UNDER_TEST="$RUNNER" \
+    FORM="$1" ALLOW="$2" bash -c 'source "$RUNNER_UNDER_TEST"; bank_form_guard "$FORM" "$ALLOW"' 2>/dev/null
+}
+[ "$(bank_guard A 0)" = true ] || fail 'fresh form was not blind'
+CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_LEDGER="$ledger" RUNNER_UNDER_TEST="$RUNNER" bash -c '
+  source "$RUNNER_UNDER_TEST"; bank_form_mark_exposed A run-1' || fail 'exposure was not recorded'
+[ "$(stat -c %a "$case_root/ledger")" = 700 ] || fail 'ledger directory is not private'
+if bank_guard A 0 >/dev/null; then fail 'exposed form started without --allow-seen'; fi
+[ "$(bank_guard A 1)" = false ] || fail 'allow-seen run was not marked non-blind'
+[ "$(bank_guard B 0)" = true ] || fail 'exposure of A leaked to form B'
+ok 'exposed forms refuse blind reuse and --allow-seen runs are not blind'
+
+# Bank questions declare submission files in meta.yaml, validated like the allowlist.
+mkdir -p "$case_root/run"
+printf 'ex-st-02\n' > "$case_root/run/questions"
+printf 'answer_files: ["out/report.txt"]\n' >> "$bank/storage/ex-st-02/meta.yaml"
+answers="$(CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_DIR="$bank" RUNNER_UNDER_TEST="$RUNNER" \
+  CASE_ROOT="$case_root" bash -c '
+    source "$RUNNER_UNDER_TEST"; RUN_DIR="$CASE_ROOT/run"; answer_arguments')"
+[ "$answers" = ex-st-02:out/report.txt ] || fail "bank answer files were not derived: $answers"
+printf 'answer_files: ["../escape"]\n' >> "$bank/storage/ex-st-02/meta.yaml"
+if CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_DIR="$bank" RUNNER_UNDER_TEST="$RUNNER" \
+    CASE_ROOT="$case_root" bash -c '
+      source "$RUNNER_UNDER_TEST"; RUN_DIR="$CASE_ROOT/run"; answer_arguments' >/dev/null 2>&1; then
+  fail 'bank answer file traversal was accepted'
+fi
+ok 'bank answer files come from meta.yaml and reject traversal'
+
+# result.json keeps per-domain scores and a readiness verdict that needs a blind form.
+bank_grade_case() { # <name> <form.json content or ""> -> prints result.json path
+  local root
+  root="$(new_case "$1")"
+  mkdir -p "$root/run/collected" "$root/run/logs" "$root/q/ex-ts-01" "$root/q/ex-st-01"
+  printf 'ex-ts-01\nex-st-01\n' > "$root/run/questions"
+  [ -z "$2" ] || printf '%s\n' "$2" > "$root/run/form.json"
+  for spec in ex-ts-01:10:10 ex-st-01:3:5; do
+    IFS=: read -r qid earned maximum <<< "$spec"
+    printf 'id: %s\npoints: %s\n' "$qid" "$maximum" > "$root/q/$qid/meta.yaml"
+    printf '#!/usr/bin/env bash\nmkdir -p "$CKA_STATE_DIR/status"\nprintf graded:%s/%s > "$CKA_STATE_DIR/status/%s"\n' \
+      "$earned" "$maximum" "$qid" > "$root/q/$qid/grade.sh"
+  done
+  cat > "$root/manual-session" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = authorize-grade ] || exit 99
+printf '%s\n' '{"run_id":"bank","operation":"grade","seal_reason":"manual","sealed_at_epoch":90,"deadline_epoch":100,"deadline_enforced":false,"manifest_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","seal_proof_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'
+SH
+  chmod 0700 "$root/manual-session"
+  CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_SSH_SESSION_SCRIPT="$root/manual-session" \
+    RUNNER_UNDER_TEST="$RUNNER" CASE_ROOT="$root" bash -c '
+      source "$RUNNER_UNDER_TEST"
+      load_run(){ RUN_ID=bank; RUN_DIR="$CASE_ROOT/run"; STATUS_PHASE=COLLECTED; }
+      runner_status_write(){ STATUS_PHASE="$1"; }
+      question_dir(){ printf "%s\n" "$CASE_ROOT/q/$1"; }
+      plan_value(){ printf "%064d\n" 0; }
+      runner_trusted_state_materialize(){ mkdir -p "$RUN_DIR/grader-final"; chmod 0700 "$RUN_DIR/grader-final"; }
+      cmd_grade
+    ' >/dev/null || return 1
+  printf '%s\n' "$root/run/result.json"
+}
+result_field() { python3 -c 'import json,sys; v=json.load(open(sys.argv[1]))
+for k in sys.argv[2].split("."): v=v[k]
+print(str(v).lower() if isinstance(v,bool) else v)' "$1" "$2"; }
+# 13/15 = 86%, storage 3/5 = 60% < 65%: exam PASS, readiness fails on the domain gate.
+result="$(bank_grade_case bank-domain-gate '{"form":"A","blind":true,"manifest_sha256":"x"}')" \
+  || fail 'bank grading failed'
+[ "$(result_field "$result" verdict)" = PASS ] || fail 'bank exam verdict is wrong'
+[ "$(result_field "$result" domains.storage.percent)" = 60 ] || fail 'domain percent is wrong'
+[ "$(result_field "$result" readinessPass)" = false ] || fail 'readiness ignored the domain gate'
+[ "$(stat -c %a "$result")" = 400 ] || fail 'result.json is not read-only'
+result="$(bank_grade_case bank-not-blind '{"form":"A","blind":false,"manifest_sha256":"x"}')" \
+  || fail 'non-blind bank grading failed'
+[ "$(result_field "$result" blind)" = false ] && [ "$(result_field "$result" readinessPass)" = false ] \
+  || fail 'non-blind run counted toward readiness'
+result="$(bank_grade_case seeded-practice '')" || fail 'seeded grading failed'
+[ "$(result_field "$result" form)" = None ] && [ "$(result_field "$result" readinessPass)" = false ] \
+  || fail 'seeded practice run counted toward readiness'
+ok 'result.json records domain scores and readiness needs a blind form and domain gates'
+
 printf '1..%d\n' "$PASS"

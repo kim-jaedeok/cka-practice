@@ -68,6 +68,14 @@ cka exam-ssh grade
 cka exam-ssh cleanup
 ```
 
+시험 전용 문제 은행의 고정 form은 `--seed` 대신 `--form`으로 준비한다. 형식, 노출 기록,
+`result.json`의 준비도 판정은 [`exam/bank/README.md`](../bank/README.md)에 있다.
+
+```bash
+cka exam-ssh prepare --form A            # 처음 푸는 form (blind)
+cka exam-ssh prepare --form A --allow-seen   # 이미 본 form 재연습 (blind 아님)
+```
+
 기본 제한시간은 7200초이며 `prepare --duration-seconds N`으로 짧은 시험을 만들 수 있다.
 form이 `PREPARED`가 된 뒤 `start`가 systemd timer와 restartable guard를 모두 활성화해야
 후보자 진입 정보를 공개한다. timer는 deadline에 base와 target을 중지하고, guard는

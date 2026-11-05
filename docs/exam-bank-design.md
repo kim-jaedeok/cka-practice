@@ -20,7 +20,8 @@
 | 트랙 B N1~N6 | 완료. v1.37 공유 클러스터에서 문제마다 selftest(setup 비만점 → near-miss 부분 점수 → solve 만점)를 통과했다. |
 | 저장 위치 결정 | 확정(2026-11-05). 사용자가 저장소 평문 저장을 결정했다(A-D1). |
 | A-W1 | 완료(2026-11-05). `exam/bank/README.md`, `exam_bank_qdir_of`, 공용 ID 규칙(`CKA_PRACTICE_ID_RE`·`CKA_EXAM_BANK_ID_RE`)과 schema·supervisor·웹 UI 정렬, `tests/test_exam_bank.py`와 `tests/contract-test.sh`의 격리 검사. |
-| A-W2 이후 | 시작할 수 있다. A-W6만 6절 결정을 기다린다. |
+| A-W2 | 완료(2026-11-06). `cka exam-ssh prepare --form NAME [--allow-seen]`, form 검증(17문항·5/4/3/3/2·호환성·shared-kind), 노출 ledger, 은행 문제의 `answer_files`, `result.json`(도메인별 점수·blind·`readinessPass`). `tests/ssh-runner-faults.sh` 23~26. |
+| A-W3 이후 | 진행 중. |
 
 트랙 B 문제 ID: N1 `sn-11`, N2 `sn-12`, N3 `ts-16`, N4 `sn-13`, N5 `ts-17`, N6 `sn-14`.
 

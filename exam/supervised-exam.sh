@@ -20,6 +20,11 @@ GRADE_TIMEOUT_SEC="${CKA_SSH_GRADE_TIMEOUT_SEC:-60}"
 DEFAULT_DURATION="${CKA_SSH_EXAM_DURATION_SECONDS:-7200}"
 ANSWER_MANIFEST="$SCRIPT_DIR/ssh/answer-files.tsv"
 ENGINE="${CKA_SSH_ENGINE:-docker}"
+# Held-out exam bank forms (docs/exam-bank-design.md, track A). The ledger
+# lives outside the repository so a checkout cannot reset exposure records.
+EXAM_BANK_FORMS_DIR="${CKA_EXAM_BANK_FORMS_DIR:-$CKA_EXAM_BANK_DIR/forms}"
+EXAM_BANK_LEDGER="${CKA_EXAM_BANK_LEDGER:-$STATE_HOME/cka-practice/exam-bank/ledger.tsv}"
+READINESS_POLICY="${CKA_READINESS_POLICY:-$SCRIPT_DIR/readiness-policy.yaml}"
 
 runner_die() { printf 'exam-ssh: %s\n' "$*" >&2; exit 2; }
 runner_transition_error() { runner_die "$1 (runner phase remains ${STATUS_PHASE:-unknown})"; }
@@ -42,6 +47,7 @@ usage() {
 usage:
   cka exam-ssh preflight [--install-linger]
   cka exam-ssh prepare [--run-id ID] [--seed SEED] [--duration-seconds N]
+  cka exam-ssh prepare --form NAME [--allow-seen] [--run-id ID] [--duration-seconds N]
   cka exam-ssh start
   cka exam-ssh status
   cka exam-ssh question N
@@ -53,6 +59,10 @@ usage:
 
 The supervised form is opt-in and admits only `environment: shared-kind`
 questions from the SSH allowlist. There is no unsupervised timer fallback.
+
+`--form NAME` runs a fixed held-out form from exam/bank/forms/NAME.tsv instead
+of a seeded practice form. A started form is recorded as exposed; it counts as
+blind only the first time unless --allow-seen is given, which marks it not blind.
 EOF
 }
 
@@ -396,8 +406,99 @@ plan_value() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[s
 
 question_dir() {
   local qid="$1" qdir
-  qdir="$(qdir_of "$qid")" || runner_die "question directory missing: $qid"
+  if [[ "$qid" =~ $CKA_EXAM_BANK_ID_RE ]]; then
+    qdir="$(exam_bank_qdir_of "$qid")" || runner_die "exam bank question directory missing: $qid"
+  else
+    qdir="$(qdir_of "$qid")" || runner_die "question directory missing: $qid"
+  fi
   printf '%s\n' "$qdir"
+}
+
+# A fixed bank form is exam/bank/forms/<NAME>.tsv with lines
+# id|setup_priority|mutex|breaks|requires. It must hold 17 distinct
+# shared-kind bank questions split 5/4/3/3/2 by domain and use the same
+# compatibility rules as exam/planner.sh.
+bank_form_build() { # <form> <questions-out> <setup-order-out>
+  local form="$1" manifest
+  [[ "$form" =~ ^[A-Z]$ ]] || runner_die "form name must be one capital letter"
+  manifest="$EXAM_BANK_FORMS_DIR/$form.tsv"
+  [ -f "$manifest" ] && [ ! -L "$manifest" ] || runner_die "exam bank form not found: $form"
+  python3 - "$manifest" "$CKA_EXAM_BANK_DIR" "$2" "$3" <<'PY'
+import os, re, sys
+manifest, bank, questions_out, order_out = sys.argv[1:5]
+domains = {"st": "storage", "wl": "workloads-scheduling", "sn": "services-networking",
+           "ca": "cluster-architecture", "ts": "troubleshooting"}
+quota = {"troubleshooting": 5, "cluster-architecture": 4, "services-networking": 3,
+         "workloads-scheduling": 3, "storage": 2}
+rows = []
+for number, raw in enumerate(open(manifest, encoding="utf-8"), 1):
+    line = raw.rstrip("\r\n")
+    if not line or line.startswith("#"):
+        continue
+    fields = line.split("|")
+    if len(fields) != 5:
+        raise SystemExit(f"exam-ssh: form line {number} needs 5 fields")
+    qid, priority, mutex, breaks, requires = fields
+    if not re.fullmatch(r"ex-(st|wl|sn|ca|ts)-[0-9]{2}", qid) or not re.fullmatch(r"[0-9]+", priority):
+        raise SystemExit(f"exam-ssh: form line {number} is invalid")
+    qdir = os.path.join(bank, domains[qid[3:5]], qid)
+    meta_path = os.path.join(qdir, "meta.yaml")
+    if os.path.islink(qdir) or not os.path.isfile(meta_path):
+        raise SystemExit(f"exam-ssh: form question missing: {qid}")
+    meta = {}
+    for meta_line in open(meta_path, encoding="utf-8"):
+        key, sep, value = meta_line.partition(":")
+        if sep:
+            meta[key.strip()] = value.strip()
+    if meta.get("environment", "shared-kind") != "shared-kind":
+        raise SystemExit(f"exam-ssh: form question is not shared-kind: {qid}")
+    tokens = lambda value: {item for item in value.split(",") if item}
+    rows.append((qid, int(priority), number, tokens(mutex), tokens(breaks), tokens(requires)))
+ids = [row[0] for row in rows]
+if len(ids) != 17 or len(set(ids)) != 17:
+    raise SystemExit("exam-ssh: a form needs 17 distinct questions")
+counts = {}
+for qid in ids:
+    counts[domains[qid[3:5]]] = counts.get(domains[qid[3:5]], 0) + 1
+if counts != quota:
+    raise SystemExit(f"exam-ssh: form domain split {counts} differs from {quota}")
+for index, a in enumerate(rows):
+    for b in rows[index + 1:]:
+        if a[3] & b[3] or a[4] & b[4] or a[4] & b[5] or a[5] & b[4]:
+            raise SystemExit(f"exam-ssh: incompatible form questions: {a[0]} {b[0]}")
+with open(questions_out, "w", encoding="utf-8") as f:
+    f.writelines(qid + "\n" for qid in ids)
+with open(order_out, "w", encoding="utf-8") as f:
+    f.writelines(row[0] + "\n" for row in sorted(rows, key=lambda r: (r[1], r[2])))
+PY
+}
+
+bank_form_exposed() { # <form>
+  [ -f "$EXAM_BANK_LEDGER" ] || return 1
+  awk -F'\t' -v form="$1" '$1 == form && $4 == "EXPOSED" { found = 1 } END { exit found ? 0 : 1 }' \
+    "$EXAM_BANK_LEDGER"
+}
+
+bank_form_mark_exposed() { # <form> <run-id>
+  local dir="${EXAM_BANK_LEDGER%/*}"
+  mkdir -p -- "$dir" && chmod 0700 -- "$dir" || return 1
+  printf '%s\t%s\t%s\tEXPOSED\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$EXAM_BANK_LEDGER"
+}
+
+# Refuse a seen form unless the operator explicitly accepts a non-blind run.
+bank_form_guard() { # <form> <allow-seen 0|1>
+  if bank_form_exposed "$1"; then
+    [ "$2" = 1 ] || runner_die "form $1 was already exposed; rerun with --allow-seen for a non-blind practice run"
+    printf 'false\n'
+  else
+    printf 'true\n'
+  fi
+}
+
+run_form_value() { # <key>; empty for seeded practice forms
+  [ -f "$RUN_DIR/form.json" ] || return 0
+  python3 -c 'import json,sys; v=json.load(open(sys.argv[1]))[sys.argv[2]]; print(str(v).lower() if isinstance(v,bool) else v)' \
+    "$RUN_DIR/form.json" "$1"
 }
 
 question_environment() {
@@ -533,14 +634,26 @@ cmd_preflight() { CKA_SSH_SUPERVISOR_STATE_ROOT="$SUPERVISOR_ROOT" bash "$SESSIO
 
 cmd_prepare() {
   local run_id="" seed="" duration="$DEFAULT_DURATION" catalog questions setup_order qid qdir rc
+  local form="" allow_seen=0 blind=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --run-id) [ "$#" -ge 2 ] || runner_die '--run-id needs a value'; run_id="$2"; shift 2 ;;
       --seed) [ "$#" -ge 2 ] || runner_die '--seed needs a value'; seed="$2"; shift 2 ;;
+      --form) [ "$#" -ge 2 ] || runner_die '--form needs a value'; form="$2"; shift 2 ;;
+      --allow-seen) allow_seen=1; shift ;;
       --duration-seconds) [ "$#" -ge 2 ] || runner_die '--duration-seconds needs a value'; duration="$2"; shift 2 ;;
       *) runner_die "unknown prepare argument: $1" ;;
     esac
   done
+  if [ -n "$form" ]; then
+    [ -z "$seed" ] || runner_die '--form and --seed cannot be combined'
+    [[ "$form" =~ ^[A-Z]$ ]] || runner_die "form name must be one capital letter"
+    seed="form-$form"
+    # Decide exposure before any run state or cluster mutation exists.
+    blind="$(bank_form_guard "$form" "$allow_seen")" || exit 2
+  else
+    [ "$allow_seen" = 0 ] || runner_die '--allow-seen applies only to --form'
+  fi
   [ -n "$run_id" ] || run_id="ssh-$(date -u +%Y%m%d%H%M%S)"
   [ -n "$seed" ] || seed="ssh-$(date -u +%Y%m%d%H%M%S)-$$"
   validate_run_id "$run_id"; validate_positive duration "$duration"
@@ -567,7 +680,23 @@ cmd_prepare() {
   runner_status_write PREPARING "form and shared cluster setup"
   catalog="$RUN_DIR/catalog.tsv"; questions="$RUN_DIR/questions"; setup_order="$RUN_DIR/setup-order"
 
-  if ! bash "$GATED_FORM" --catalog-out "$catalog" > "$RUN_DIR/logs/gated-form.log" 2>&1 \
+  if [ -n "$form" ]; then
+    if ! (bank_form_build "$form" "$questions" "$setup_order") > "$RUN_DIR/logs/bank-form.log" 2>&1 \
+       || ! cp -- "$EXAM_BANK_FORMS_DIR/$form.tsv" "$catalog"; then
+      runner_status_write INVALID "exam bank form validation failed"
+      runner_die "exam bank form $form is invalid; see $RUN_DIR/logs/bank-form.log"
+    fi
+    python3 - "$RUN_DIR/form.json" "$form" "$blind" "$catalog" <<'PY'
+import hashlib, json, os, sys
+path, form, blind, manifest = sys.argv[1:5]
+value = {"form": form, "blind": blind == "true",
+         "manifest_sha256": hashlib.sha256(open(manifest, "rb").read()).hexdigest()}
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    json.dump(value, f, sort_keys=True)
+    f.write("\n")
+PY
+  elif ! bash "$GATED_FORM" --catalog-out "$catalog" > "$RUN_DIR/logs/gated-form.log" 2>&1 \
      || ! CKA_FORM_CATALOG="$catalog" bash "$PLANNER" --seed "$seed" \
        --questions-out "$questions" --setup-order-out "$setup_order" > "$RUN_DIR/logs/planner.log" 2>&1 \
      || ! bash "$GATED_FORM" --verify-form "$questions" >> "$RUN_DIR/logs/gated-form.log" 2>&1; then
@@ -669,6 +798,9 @@ PY
   chmod 0400 "$questions" "$setup_order" "$catalog" "$kubeconfig"
   runner_plan_verify
   runner_status_write PREPARED "immutable form ready"
+  if [ -n "$form" ]; then
+    printf 'Exam bank form %s prepared (blind: %s)\n' "$form" "$blind"
+  fi
   printf 'SSH supervised form prepared: %s (17 shared API-safe questions)\n' "$RUN_ID"
   printf 'Start only when ready: cka exam-ssh start\n'
 }
@@ -684,6 +816,23 @@ answer_arguments() {
     [ -n "${selected[$answer_id]+x}" ] || continue
     printf '%s:%s\n' "$answer_id" "$relative"
   done < "$ANSWER_MANIFEST"
+  # Bank questions declare their submission files in meta.yaml answer_files.
+  while IFS= read -r qid; do
+    [[ "$qid" =~ $CKA_EXAM_BANK_ID_RE ]] || continue
+    python3 - "$(question_dir "$qid")/meta.yaml" "$qid" <<'PY' || runner_die "invalid answer_files for $qid"
+import json, re, sys
+raw = ""
+for line in open(sys.argv[1], encoding="utf-8"):
+    if line.startswith("answer_files:"):
+        raw = line.split(":", 1)[1].strip()
+files = json.loads(raw) if raw else []
+for relative in files:
+    if not isinstance(relative, str) or not re.fullmatch(r"[A-Za-z0-9._/-]+", relative) \
+            or ".." in relative.split("/") or relative.startswith("/"):
+        raise SystemExit(1)
+    print(f"{sys.argv[2]}:{relative}")
+PY
+  done < "$RUN_DIR/questions"
 }
 
 cmd_start() {
@@ -696,6 +845,14 @@ cmd_start() {
     --base-image "${CKA_SSH_BASE_IMAGE:-cka-practice/ssh-base:v1}"
     --target-image "${CKA_SSH_TARGET_IMAGE:-cka-practice/ssh-target:v1}")
   while IFS= read -r answer; do [ -n "$answer" ] && args+=(--answer "$answer"); done < <(answer_arguments)
+  # A bank form is consumed once candidate access may begin, even if the run
+  # later fails. Record it first so no exposure can go unrecorded.
+  local form
+  form="$(run_form_value form)"
+  if [ -n "$form" ]; then
+    bank_form_mark_exposed "$form" "$RUN_ID" \
+      || runner_die "cannot record exposure of form $form; the run was not started"
+  fi
   set +e; output="$(CKA_SSH_SUPERVISOR_STATE_ROOT="$SUPERVISOR_ROOT" bash "$SESSION" "${args[@]}" 2>&1)"; rc=$?; set -e
   if [ "$rc" -ne 0 ]; then runner_status_write INVALID "supervisor activation failed ($rc)"; printf '%s\n' "$output" >&2; runner_die "supervisor refused activation"; fi
   runner_status_write RUNNING "deadline supervisor active"
@@ -797,6 +954,8 @@ PY
     runner_die "supervised result is INVALID because trusted grader evidence was not materialized"
   fi
   local qid qdir rc state expected total_earned=0 total_max=0 invalid=0
+  local scores="$RUN_DIR/question-scores.tsv"
+  : > "$scores"
   while IFS= read -r qid; do
     qdir="$(question_dir "$qid")"; expected="$(meta_get "$qdir" points)"
     set +e
@@ -812,6 +971,7 @@ PY
     else
       total_earned=$((total_earned + G_EARNED)); total_max=$((total_max + G_MAX))
       printf '%s: %s/%s\n' "$qid" "$G_EARNED" "$G_MAX"
+      printf '%s\t%s\t%s\t%s\n' "$qid" "$(domain_of "$qid")" "$G_EARNED" "$G_MAX" >> "$scores"
     fi
   done < "$RUN_DIR/questions"
   if [ "$invalid" -ne 0 ] || [ "$total_max" -le 0 ]; then
@@ -825,7 +985,43 @@ PY
     verdict=PASS
   fi
   printf 'score: %s/%s (%s%%) — %s\n' "$total_earned" "$total_max" "$pct" "$verdict" | tee "$RUN_DIR/score.txt"
-  chmod 0400 "$RUN_DIR/score.txt" "$RUN_DIR/grade-authorization.json"
+  # The exam verdict (66%) and the local readiness verdict are separate:
+  # readiness also needs a blind bank form and the readiness-policy thresholds.
+  python3 - "$scores" "$RUN_DIR/form.json" "$READINESS_POLICY" "$verdict" "$RUN_DIR/result.json" <<'PY'
+import json, os, sys
+scores_path, form_path, policy_path, verdict, out = sys.argv[1:6]
+questions, domains = [], {}
+for line in open(scores_path, encoding="utf-8"):
+    qid, domain, earned, maximum = line.rstrip("\n").split("\t")
+    questions.append({"id": qid, "domain": domain, "earned": int(earned), "max": int(maximum)})
+    total = domains.setdefault(domain, {"earned": 0, "max": 0})
+    total["earned"] += int(earned)
+    total["max"] += int(maximum)
+for total in domains.values():
+    total["percent"] = total["earned"] * 100 // total["max"]
+earned = sum(q["earned"] for q in questions)
+maximum = sum(q["max"] for q in questions)
+percent = earned * 100 // maximum
+form = json.load(open(form_path, encoding="utf-8")) if os.path.isfile(form_path) else {}
+policy = json.load(open(policy_path, encoding="utf-8"))["practiceReady"]
+blind = form.get("blind") is True
+readiness = (blind and verdict == "PASS"
+             and percent >= policy["minimumOverallPercentEachRun"]
+             and all(d["percent"] >= policy["minimumDomainPercentEachRun"] for d in domains.values()))
+value = {"form": form.get("form"), "blind": blind, "verdict": verdict,
+         "earned": earned, "max": maximum, "percent": percent,
+         "domains": domains, "questions": questions, "readinessPass": readiness}
+fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    json.dump(value, f, indent=2, sort_keys=True)
+    f.write("\n")
+for name in sorted(domains):
+    d = domains[name]
+    print(f"  {name}: {d['earned']}/{d['max']} ({d['percent']}%)")
+print(f"form: {form.get('form') or 'seeded practice form'}, blind: {str(blind).lower()}, "
+      f"readiness pass: {str(readiness).lower()}")
+PY
+  chmod 0400 "$RUN_DIR/score.txt" "$RUN_DIR/grade-authorization.json" "$scores"
   runner_status_write GRADED "$verdict $total_earned/$total_max"
 }
 
