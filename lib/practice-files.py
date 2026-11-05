@@ -17,7 +17,8 @@ def require(condition, message):
 
 
 def valid_qid(value):
-    return isinstance(value, str) and re.fullmatch(r"(st|wl|sn|ca|ts)-[0-9]{2}", value)
+    # Practice IDs and exam bank IDs (lib/common.sh CKA_*_ID_RE).
+    return isinstance(value, str) and re.fullmatch(r"(ex-)?(st|wl|sn|ca|ts)-[0-9]{2}", value)
 
 
 def valid_name(value):

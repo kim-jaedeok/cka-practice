@@ -66,6 +66,17 @@ class IdRulesTest(unittest.TestCase):
                 self.assertEqual(bool(schema_re.fullmatch(qid)), expected)
                 self.assertEqual(bool(supervisor_re.fullmatch(qid)), expected)
 
+    def test_practice_file_tracker_accepts_both_rules(self):
+        # selftest --bank starts bank questions through the same runtime.
+        tracker = (ROOT / "lib" / "practice-files.py").read_text(encoding="utf-8")
+        match = re.search(r're\.fullmatch\(r"([^"]+)", value\)', tracker)
+        self.assertIsNotNone(match)
+        tracker_re = re.compile(match.group(1))
+        for qid in SAMPLE_IDS:
+            expected = bool(PRACTICE_RE.fullmatch(qid) or BANK_RE.fullmatch(qid))
+            with self.subTest(qid=qid):
+                self.assertEqual(bool(tracker_re.fullmatch(qid)), expected)
+
 
 class LayoutTest(unittest.TestCase):
     def test_practice_directories_use_practice_ids(self):

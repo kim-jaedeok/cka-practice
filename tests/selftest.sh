@@ -7,6 +7,7 @@
 #   tests/selftest.sh --domain storage # 특정 도메인만
 #   tests/selftest.sh --only st-01     # 특정 문제만
 #   tests/selftest.sh --contract-only  # 클러스터 없이 공통/static 계약만
+#   tests/selftest.sh --bank           # 시험 은행(exam/bank) 문제. 출력은 ID와 점수뿐이다
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,6 +16,7 @@ source "$SCRIPT_DIR/../lib/question-runtime.sh"
 
 DOMAIN_ORDER=(storage workloads-scheduling services-networking cluster-architecture troubleshooting)
 ONLY="" DOMAIN="" CONTRACT_ONLY=0 RUN_CONTRACT=1 INCLUDE_DISPOSABLE=0
+QUESTION_ROOT="$CKA_ROOT/questions"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --only)          [ "$#" -ge 2 ] || die "--only requires an id"; ONLY="$2"; shift 2 ;;
@@ -22,7 +24,8 @@ while [ "$#" -gt 0 ]; do
     --contract-only) CONTRACT_ONLY=1; shift ;;
     --skip-contract) RUN_CONTRACT=0; shift ;;
     --include-disposable) INCLUDE_DISPOSABLE=1; shift ;;
-    *) die "사용법: tests/selftest.sh [--only ID|--domain DOMAIN] [--include-disposable] [--contract-only|--skip-contract]" ;;
+    --bank)          QUESTION_ROOT="$CKA_EXAM_BANK_DIR"; shift ;;
+    *) die "사용법: tests/selftest.sh [--only ID|--domain DOMAIN] [--bank] [--include-disposable] [--contract-only|--skip-contract]" ;;
   esac
 done
 
@@ -150,7 +153,7 @@ run_one() {
 
 for d in "${DOMAIN_ORDER[@]}"; do
   [ -n "$DOMAIN" ] && [ "$d" != "$DOMAIN" ] && continue
-  for qdir in "$CKA_ROOT/questions/$d"/*/; do
+  for qdir in "$QUESTION_ROOT/$d"/*/; do
     [ -d "$qdir" ] || continue
     [ -n "$ONLY" ] && [ "$(basename "$qdir")" != "$ONLY" ] && continue
     environment="$(question_runtime_environment "$qdir")" || die "문제 환경 metadata 오류: $qdir"
