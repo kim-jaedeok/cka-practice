@@ -256,8 +256,9 @@ download 없이 준비된 cache만 받아들인다. 공식 release 기준은
    결과와 별개로 무개입 deadline이 `TIMEOUT`을 강제했고, guard kill·restart, 실제
    base→target SSH 및 exact cleanup도 통과했다. 종료 후 관련 cluster·container·network와
    volume은 모두 0개였다.
-3. [`exam/readiness-policy.yaml`](../exam/readiness-policy.yaml)의 자체 기준대로 유효한 blind
-   run 3회를 각각 총점 80% 이상, 각 도메인 65% 이상, 시간 초과 없이 통과한다.
+3. [`exam/readiness-policy.yaml`](../exam/readiness-policy.yaml)의 자체 기준대로 서로 다른 시험
+   은행 form 2개를 처음 푼 blind run 2회를 각각 총점 80% 이상, 각 도메인 65% 이상, 시간 초과
+   없이 통과한다(`cka exam-ssh prepare --form`).
 4. 지정-host workflow를 사용하고 외부 공식 simulator를 통과한다.
 
 필수 suite의 정확한 파일명·실행 방법·완료 상태는

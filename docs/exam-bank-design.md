@@ -22,6 +22,7 @@
 | A-W1 | 완료(2026-11-05). `exam/bank/README.md`, `exam_bank_qdir_of`, 공용 ID 규칙(`CKA_PRACTICE_ID_RE`·`CKA_EXAM_BANK_ID_RE`)과 schema·supervisor·웹 UI 정렬, `tests/test_exam_bank.py`와 `tests/contract-test.sh`의 격리 검사. |
 | A-W2 | 완료(2026-11-06). `cka exam-ssh prepare --form NAME [--allow-seen]`, form 검증(17문항·5/4/3/3/2·호환성·shared-kind), 노출 ledger, 은행 문제의 `answer_files`, `result.json`(도메인별 점수·blind·`readinessPass`). `tests/ssh-runner-faults.sh` 23~26. |
 | A-W3 | 진행 중(별도 세션). |
+| A-W6 | 완료(2026-11-06). `exam/readiness-policy.yaml` v2: blind run 2회, 서로 다른 시험 은행 form, 외부 simulator 유지. 준비도 판정은 `result.json`의 `readinessPass`. |
 | A-W4 | 완료(2026-11-06). target image에 Helm v3.22.1 추가. node 파일시스템은 `kubectl debug node … -- chroot /host`로 접근(control-plane etcdctl·static Pod manifest, worker kubelet 설정·crictl, TTY 진입을 v1.37 공유 클러스터에서 확인). kubelet 정지·kubeadm 재구성 문제는 이 방법으로 풀 수 없어 연습 셀에만 둔다. |
 
 트랙 B 문제 ID: N1 `sn-11`, N2 `sn-12`, N3 `ts-16`, N4 `sn-13`, N5 `ts-17`, N6 `sn-14`.
@@ -254,10 +255,8 @@ CKA 응시 뒤에 다시 검토한다.
 
 ## 6. 결정 요청
 
-저장 위치, 작성자·열람 규칙, 정답 공개 시점은 A-D1로 정해졌다. 남은 결정은 하나다.
-
-1. **준비 기준 변경**: blind run을 3회에서 시험 form 2회로 줄이고 Killer.sh 조건을 유지하는
-   변경(A-D8)을 받아들일지 정한다. A-W6만 이 결정을 기다린다.
+남은 결정은 없다. 저장 위치, 작성자·열람 규칙, 정답 공개 시점은 A-D1로 정해졌다. 준비 기준
+변경(A-D8)은 사용자가 "전체 다 해"로 권장안 진행을 지시해 2026-11-06에 적용했다(A-W6).
 
 ## 7. 바로 할 수 있는 일
 

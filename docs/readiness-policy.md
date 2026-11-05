@@ -5,8 +5,8 @@
 실행할 수 있는 형태로 정리한다. Linux Foundation의 공식 합격 판정이나 합격 보장이 아니다.
 
 공식 CKA 합격선은 66%이고, 모든 과제는 문항에 지정된 SSH (Secure Shell) host에서
-수행한다. 이 프로젝트의 80%·도메인별 65%·3회 blind run 기준은 공식 기준보다 보수적으로
-정한 로컬 정책이다.
+수행한다. 이 프로젝트의 80%·도메인별 65%·시험 은행 form 2회 blind run 기준은 공식 기준보다
+보수적으로 정한 로컬 정책이다.
 
 공식 근거:
 [Linux Foundation FAQ](https://docs.linuxfoundation.org/tc-docs/certification/faq-cka-ckad-cks) ·
@@ -172,10 +172,17 @@ Docker의 공식 명령 문서도 일반 container 삭제와 anonymous volume �
 다음을 모두 만족해야 한다.
 
 1. curriculum의 모든 역량이 `covered`이고 위 네 required live suite가 전체 통과한다.
-2. 유효한 blind run을 3회 완료하며, 매번 총점 80% 이상·각 도메인 65% 이상·초과시간
-   0초를 만족한다. `INVALID`와 overtime run은 횟수에 포함하지 않는다.
-3. 실제 지정-host workflow를 사용한다.
+2. 서로 다른 시험 은행 form 2개를 각각 처음 푼 blind run 2회를 완료하며, 매번 총점 80%
+   이상·각 도메인 65% 이상·초과시간 0초를 만족한다. 각 run의 `result.json`에서
+   `readinessPass`가 `true`여야 한다. seed로 만든 연습 form, `--allow-seen` run, `INVALID`와
+   overtime run은 횟수에 포함하지 않는다.
+3. 실제 지정-host workflow(`cka exam-ssh`)를 사용한다.
 4. 등록 상품에 제공되는 외부 공식 simulator를 통과한다.
+
+2번 기준은 2026-11-06에 "유효한 모의고사 run 3회"에서 바꿨다. seed로 만든 모의고사는 연습
+문제를 다시 출제하므로 처음 보는 문제에 대한 준비도를 측정하지 못한다. 대신 처음 보는 시험
+은행 form 2개와 외부 simulator(4번)로 측정한다. 설계는
+[`exam-bank-design.md`](exam-bank-design.md) A-D8에 있다.
 
 `v1.37.0`에서는 네 required live suite 중 감독형 SSH suite가 아직 재검증 전이다.
 따라서 1번 조건도 다시 충족해야 한다. 개인이 2~4번 조건을 충족했다는 증거도 별도이므로,

@@ -1,8 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "officialPassPercent": 66,
   "practiceReady": {
-    "minimumValidBlindRuns": 3,
+    "minimumValidBlindRuns": 2,
+    "blindRunSource": "exam-bank-form",
+    "requireDistinctForms": true,
     "minimumOverallPercentEachRun": 80,
     "minimumDomainPercentEachRun": 65,
     "maximumOvertimeSeconds": 0,
@@ -13,6 +15,8 @@
   "notes": [
     "The official CKA pass score is 66 percent.",
     "The 80/65 thresholds are conservative local readiness gates, not an official pass prediction.",
+    "A blind run is the first exposure of a held-out exam bank form (cka exam-ssh prepare --form). Seeded practice forms and --allow-seen runs never count.",
+    "Two blind bank forms plus the external simulator replace the earlier three seeded runs, because seeded forms reuse practice questions (decision 2026-11-06).",
     "INVALID runs and overtime runs never count toward readiness."
   ],
   "sources": [

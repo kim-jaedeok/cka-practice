@@ -37,6 +37,11 @@ class ReadinessPolicyTest(unittest.TestCase):
         self.assertLessEqual(ready["minimumDomainPercentEachRun"], 100)
         self.assertEqual(ready["maximumOvertimeSeconds"], 0)
         self.assertTrue(ready["requireAllCurriculumCompetenciesCovered"])
+        # Blind runs come only from distinct held-out bank forms; the
+        # external simulator remains a separate requirement.
+        self.assertEqual(ready["blindRunSource"], "exam-bank-form")
+        self.assertTrue(ready["requireDistinctForms"])
+        self.assertTrue(ready["requireExternalSimulatorPass"])
 
     def test_sources_are_official(self):
         for source in self.policy["sources"]:
