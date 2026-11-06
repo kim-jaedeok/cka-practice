@@ -1,0 +1,8 @@
+id: ex-ca-06
+title: Recover a Helm release and move it to a new chart version
+domain: cluster-architecture
+points: 8
+minutes: 7
+environment: shared-kind
+isolation: namespace
+mock_exam: true

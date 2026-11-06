@@ -1,0 +1,24 @@
+# Exam bank form B: id|setup_priority|mutex|breaks|requires
+# Display order is line order. Every question uses its own namespaces and
+# uniquely named cluster-scoped objects. Node-level setups only add files that
+# no other question reads (a static Pod manifest on cka-worker2, a backup
+# directory on cka-control-plane) and teardown removes them; none stops or
+# reconfigures a shared component, so no question declares `breaks`.
+# `requires` documents the shared dependencies the graders rely on.
+ex-ts-06|100|||worker2-ready
+ex-wl-04|100|||metrics-server
+ex-sn-04|100|||dns,two-schedulable-workers
+ex-ca-05|100|||
+ex-st-03|100|||local-path-provisioner
+ex-ts-07|100|||
+ex-ca-06|100|||
+ex-wl-05|100|||
+ex-sn-05|100|||ingress-controller
+ex-ts-08|100|||
+ex-ca-07|100|||worker1-ready,worker1-schedulable
+ex-st-04|100|||worker2-schedulable,local-path-provisioner,default-storageclass
+ex-ts-09|100|||dns,network-policy
+ex-sn-06|100|||dns
+ex-wl-06|100|||
+ex-ca-08|100|||
+ex-ts-10|100|||

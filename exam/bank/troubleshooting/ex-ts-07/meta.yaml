@@ -1,0 +1,8 @@
+id: ex-ts-07
+title: A worker container keeps getting killed
+domain: troubleshooting
+points: 6
+minutes: 6
+environment: shared-kind
+isolation: namespace
+mock_exam: true

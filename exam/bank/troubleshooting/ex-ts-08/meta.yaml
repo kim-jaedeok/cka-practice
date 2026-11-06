@@ -1,0 +1,8 @@
+id: ex-ts-08
+title: A scheduled maintenance job stopped running
+domain: troubleshooting
+points: 6
+minutes: 7
+environment: shared-kind
+isolation: namespace
+mock_exam: true

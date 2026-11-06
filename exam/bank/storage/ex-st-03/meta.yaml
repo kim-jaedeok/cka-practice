@@ -1,0 +1,8 @@
+id: ex-st-03
+title: Move an application's data to a larger volume
+domain: storage
+points: 6
+minutes: 8
+environment: shared-kind
+isolation: namespace
+mock_exam: true

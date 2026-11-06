@@ -1,0 +1,8 @@
+id: ex-wl-06
+title: Canary one StatefulSet replica with a partitioned update
+domain: workloads-scheduling
+points: 7
+minutes: 6
+environment: shared-kind
+isolation: namespace
+mock_exam: true

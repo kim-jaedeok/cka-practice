@@ -1,0 +1,8 @@
+id: ex-wl-04
+title: Autoscale on CPU with a slow scale-down
+domain: workloads-scheduling
+points: 7
+minutes: 7
+environment: shared-kind
+isolation: namespace
+mock_exam: true

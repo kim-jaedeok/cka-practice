@@ -1,0 +1,8 @@
+id: ex-ca-07
+title: Run a workload under a second container runtime handler
+domain: cluster-architecture
+points: 7
+minutes: 8
+environment: shared-kind
+isolation: cluster-scope
+mock_exam: true

@@ -1,0 +1,8 @@
+id: ex-ts-06
+title: A node-local Pod restarts in a loop
+domain: troubleshooting
+points: 6
+minutes: 7
+environment: shared-kind
+isolation: cluster-scope
+mock_exam: true

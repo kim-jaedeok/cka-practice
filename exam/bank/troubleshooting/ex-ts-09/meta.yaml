@@ -1,0 +1,8 @@
+id: ex-ts-09
+title: An application cannot reach its backend after an egress lockdown
+domain: troubleshooting
+points: 8
+minutes: 8
+environment: shared-kind
+isolation: namespace
+mock_exam: true

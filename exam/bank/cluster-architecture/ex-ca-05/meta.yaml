@@ -1,0 +1,9 @@
+id: ex-ca-05
+title: Back up etcd before a cutover
+domain: cluster-architecture
+points: 7
+minutes: 8
+environment: shared-kind
+isolation: cluster-scope
+mock_exam: true
+answer_files: ["revision.txt"]

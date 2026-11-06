@@ -1,0 +1,8 @@
+id: ex-sn-05
+title: Serve a site over HTTPS with a provided certificate
+domain: services-networking
+points: 6
+minutes: 6
+environment: shared-kind
+isolation: namespace
+mock_exam: true

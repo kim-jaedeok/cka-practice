@@ -1,0 +1,9 @@
+id: ex-ca-08
+title: Prepare a time-limited join command for new workers
+domain: cluster-architecture
+points: 8
+minutes: 7
+environment: shared-kind
+isolation: cluster-scope
+mock_exam: true
+answer_files: ["join-worker.sh"]
