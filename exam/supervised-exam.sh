@@ -211,7 +211,8 @@ def read_questions():
     result = [line.strip() for line in payload.splitlines() if line.strip()]
     if not result or len(result) != len(set(result)):
         die("question list is empty or duplicated")
-    if any(not re.fullmatch(r"[a-z]{2}-[0-9]{2}", item) for item in result):
+    # Practice IDs and exam bank IDs (lib/common.sh CKA_*_ID_RE).
+    if any(not re.fullmatch(r"(?:ex-)?(?:st|wl|sn|ca|ts)-[0-9]{2}", item) for item in result):
         die("question list contains an invalid ID")
     return result
 

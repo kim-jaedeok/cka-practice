@@ -249,6 +249,27 @@ install -d -m 0700 "$case_root/run/grader-final/status" \
   || fail 'separate final status path is not writable'
 ok 'trusted setup evidence is plan-ready, candidate-separated, and materialized read-only'
 
+# Exam bank forms carry ex- IDs.  The snapshot must accept them (a bank form
+# prepare once failed here) and must still reject IDs outside both schemes.
+trusted_snapshot_ids() { # <case> <id>... -> rc of snapshot
+  local root="$1"; shift
+  install -d -m 0700 "$root/run" "$root/run/grader-state" "$root/run/grader-state/question-data"
+  printf '%s\n' "$@" > "$root/run/questions"
+  install -d -m 0700 "$root/run/grader-state/question-data/$1"
+  printf 'baseline\n' > "$root/run/grader-state/question-data/$1/baseline"
+  CKA_SSH_RUNNER_SOURCE_ONLY=1 RUNNER_UNDER_TEST="$RUNNER" CASE_ROOT="$root" bash -c '
+    source "$RUNNER_UNDER_TEST"
+    RUN_ID=trusted-bank; RUN_DIR="$CASE_ROOT/run"
+    runner_trusted_state_snapshot
+  ' >/dev/null 2>&1
+}
+trusted_snapshot_ids "$(new_case trusted-bank)" ex-ts-01 ex-st-02 \
+  || fail 'trusted snapshot rejected exam bank IDs'
+if trusted_snapshot_ids "$(new_case trusted-bad-id)" xx-01; then
+  fail 'trusted snapshot accepted an ID outside the practice and bank schemes'
+fi
+ok 'trusted evidence accepts exam bank IDs and rejects unknown ID schemes'
+
 # The manifest is bound to both run ID and exact form, and protected bytes are
 # checked again rather than trusting path names or permissions alone.
 digest="$(sha256sum "$case_root/run/trusted-state-manifest.json")"; digest="${digest%% *}"
