@@ -188,9 +188,9 @@ data path 및 각 일회용 resource cleanup이 포함된다. 2026-08-23 clean U
 상태에서 무개입 deadline 후 `TIMEOUT`, guard kill·restart, 실제 base→target SSH와 exact
 cleanup을 검증했으며 종료 후 관련 Docker·KIND object는 모두 0개였다.
 
-v1.37.0으로 고정 버전을 올린 뒤 2026-11-03에 일회용 셀 7문제의 live gate는 다시 통과했다.
-감독형 SSH gate는 아직 다시 실행하지 않았다. 따라서 현재 저장소의 구현 검증 상태는
-`static-complete-live-pending`이다. 재검증 현황은
+v1.37.0으로 고정 버전을 올린 뒤 2026-11-03에 일회용 셀 7문제의 live gate가 다시 통과했다.
+2026-11-06에는 감독형 SSH gate도 다시 통과했다. 따라서 현재 저장소의 구현 검증 상태는
+`practice-ready-live-complete`이다. 재검증 현황은
 [`readiness-policy.md`](readiness-policy.md)에 기록한다. 어떤 상태든 그것만으로 개인의
 “준비 종료”나 공식 CKA 합격을 선언하지 않는다.
 

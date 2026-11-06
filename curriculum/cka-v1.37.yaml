@@ -7,7 +7,7 @@
     "gap": "No hands-on lab currently exercises the competency."
   },
   "implementationValidation": {
-    "status": "static-complete-live-pending",
+    "status": "practice-ready-live-complete",
     "requiredLiveSuites": [
       "tests/kubeadm-live-test.sh",
       "tests/operator-gateway-live-test.sh",
@@ -16,7 +16,7 @@
     ],
     "liveResults": {
       "kubernetesVersion": "v1.37.0",
-      "validatedOn": null,
+      "validatedOn": "2026-11-06",
       "passed": [
         {
           "suite": "tests/kubeadm-live-test.sh",
@@ -38,18 +38,31 @@
           "validatedOn": "2026-11-03",
           "host": "Colima Ubuntu 24.04 aarch64 VM",
           "cleanup": "passed"
-        }
-      ],
-      "pending": [
+        },
         {
           "suite": "tests/ssh-supervised-live-test.sh",
           "cases": [
             "wl-03", "wl-02", "ts-01", "ts-03", "wl-08", "ts-02",
             "ts-04", "sn-01", "st-01", "sn-09", "sn-08", "st-04",
             "ca-01", "ca-02", "ca-05", "ca-08", "ts-10"
-          ]
+          ],
+          "validatedOn": "2026-11-06",
+          "host": "Colima Ubuntu 24.04 aarch64 VM (dbus-user-session installed)",
+          "score": "104/104",
+          "deadlineVerdict": "TIMEOUT",
+          "guardRestart": "passed",
+          "sshPath": "base-to-target passed",
+          "cleanup": "passed",
+          "postCleanupObjects": {
+            "kindClusters": 0,
+            "sshObjects": 0,
+            "kindNodes": 0,
+            "kindNetworks": 0,
+            "dockerVolumes": 0
+          }
         }
-      ]
+      ],
+      "pending": []
     },
     "previousLiveResults": {
       "kubernetesVersion": "v1.35.0",

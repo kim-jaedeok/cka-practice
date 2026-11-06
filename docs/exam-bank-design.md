@@ -12,7 +12,7 @@
 
 두 트랙은 서로 기다리지 않는다.
 
-**구현 상태 (2026-11-05)**
+**구현 상태 (2026-11-06)**
 
 | 항목 | 상태 |
 |---|---|
@@ -21,7 +21,9 @@
 | 저장 위치 결정 | 확정(2026-11-05). 사용자가 저장소 평문 저장을 결정했다(A-D1). |
 | A-W1 | 완료(2026-11-05). `exam/bank/README.md`, `exam_bank_qdir_of`, 공용 ID 규칙(`CKA_PRACTICE_ID_RE`·`CKA_EXAM_BANK_ID_RE`)과 schema·supervisor·웹 UI 정렬, `tests/test_exam_bank.py`와 `tests/contract-test.sh`의 격리 검사. |
 | A-W2 | 완료(2026-11-06). `cka exam-ssh prepare --form NAME [--allow-seen]`, form 검증(17문항·5/4/3/3/2·호환성·shared-kind), 노출 ledger, 은행 문제의 `answer_files`, `result.json`(도메인별 점수·blind·`readinessPass`). `tests/ssh-runner-faults.sh` 23~26. |
-| A-W3 | 진행 중(별도 세션). |
+| A-W3 | 완료(2026-11-06). form A 17문제, API만으로 푸는 문제. 문제별 selftest 통과. |
+| A-W5 | 완료(2026-11-06). form B 17문제, Helm 문제와 node 파일시스템 문제 포함. 문제별 selftest 통과, form A+B 은행 selftest 34/34. |
+| 감독형 SSH live gate | 통과(2026-11-06). v1.37.0에서 `tests/ssh-supervised-live-test.sh` 17문항 104/104, deadline `TIMEOUT`, guard 재시작, 정리. curriculum 상태는 `practice-ready-live-complete`. |
 | A-W6 | 완료(2026-11-06). `exam/readiness-policy.yaml` v2: blind run 2회, 서로 다른 시험 은행 form, 외부 simulator 유지. 준비도 판정은 `result.json`의 `readinessPass`. |
 | A-W4 | 완료(2026-11-06). target image에 Helm v3.22.1 추가. node 파일시스템은 `kubectl debug node … -- chroot /host`로 접근(control-plane etcdctl·static Pod manifest, worker kubelet 설정·crictl, TTY 진입을 v1.37 공유 클러스터에서 확인). kubelet 정지·kubeadm 재구성 문제는 이 방법으로 풀 수 없어 연습 셀에만 둔다. |
 
@@ -260,7 +262,8 @@ CKA 응시 뒤에 다시 검토한다.
 
 ## 7. 바로 할 수 있는 일
 
-A-W0, A-W1, B-W1~B-W4는 끝났다(1절 앞의 구현 상태 참조). A-W2~A-W5는 지금 시작할 수 있다.
+A-W0~A-W6과 B-W1~B-W4가 모두 끝났다(1절 앞의 구현 상태 참조). 다음 일은 사용자가 form A와
+form B를 `cka exam-ssh prepare --form A`·`--form B`로 blind 상태에서 푸는 것이다.
 
 ## 8. 한계와 위험
 

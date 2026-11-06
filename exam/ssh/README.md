@@ -34,6 +34,10 @@
 - Linux/WSL (Windows Subsystem for Linux)에서 실행 중인 Docker Engine과 준비된
   `kind-cka` cluster
 - PID 1의 systemd, 접근 가능한 persistent per-user systemd manager, login linger
+- 사용자 D-Bus session bus(`/run/user/<uid>/bus`). Ubuntu에서는 `dbus-user-session`
+  package가 제공한다. 이 bus가 없으면 `systemd-run --user`가 "Failed to connect to bus"로
+  실패하고 preflight가 자동 모드를 거부한다. 설치 뒤 `systemctl --user start dbus.socket`으로
+  bus를 시작한다.
 - symlink component가 없고 현재 사용자가 소유한 mode `0700` native-Linux state directory
 - 미리 빌드한 base·target image
 
@@ -152,6 +156,8 @@ final grader에는 같은 bytes가 0400 read-only snapshot으로 전달되며 pr
 deadline 뒤 verdict는 `TIMEOUT` 비통과였고, guard 강제 종료 후 systemd 재시작과 실제
 base→target 공개키 SSH, collect·final grade, exact cleanup도 모두 통과했다. 종료 후 KIND
 cluster, 감독형 SSH object, kind node, `kind` network와 Docker volume은 모두 0개였다.
+Kubernetes v1.37.0으로 올린 뒤 2026-11-06에 Colima Ubuntu 24.04 aarch64 VM에서 같은 gate가
+다시 통과했다(104/104, `TIMEOUT`, guard 재시작, base→target SSH, exact cleanup).
 따라서 저장소 implementation validation은 `practice-ready-live-complete`이며, static fault
 contract와 별도 runner smoke는 계속 빠른 보조 회귀 검사로 사용한다. 이 결과는 공식 CKA
 합격 보장이나 개인의 학습 준비 완료 판정이 아니다.

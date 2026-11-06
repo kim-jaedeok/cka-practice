@@ -299,8 +299,8 @@ suite가 모두 통과했다. 검증 범위는 `ca-12` blank-node kubeadm bootst
 3-control-plane stacked-etcd failover, `ca-06` N-1→N worker upgrade, `ca-09`·`ca-13`
 cert-manager, `sn-05` Envoy Gateway, `st-06` CSI (Container Storage Interface) data path와
 clean host의 실제 17문항 감독형 SSH gate였다. 고정 버전을 v1.37.0으로 올린 뒤
-2026-11-03에 kubeadm, Operator·Gateway, CSI suite는 다시 통과했다. 감독형 SSH suite는 아직
-다시 실행하지 않았다. 따라서 현재 저장소 구현 검증 상태는 `static-complete-live-pending`이다. 어떤 상태든 공식 CKA 합격 보장이나 개인의 “준비 종료”
+2026-11-03에 kubeadm, Operator·Gateway, CSI suite가 다시 통과했고, 2026-11-06에 감독형 SSH
+suite도 다시 통과했다. 따라서 현재 저장소 구현 검증 상태는 `practice-ready-live-complete`이다. 어떤 상태든 공식 CKA 합격 보장이나 개인의 “준비 종료”
 선언이 아니다. 별도의 학습 기준과 정확한 명령·결과는
 [`docs/readiness-policy.md`](docs/readiness-policy.md)에 있다.
 

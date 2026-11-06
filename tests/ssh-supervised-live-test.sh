@@ -42,6 +42,10 @@ DURATION="${CKA_SSH_SUPERVISED_LIVE_DURATION_SECONDS:-90}"
 [[ "$DURATION" =~ ^[0-9]+$ ]] && [ "$DURATION" -ge 45 ] && [ "$DURATION" -le 180 ] \
   || { printf 'live deadline must be 45..180 seconds\n' >&2; exit 1; }
 
+# lib/common.sh activates the locked KIND binary from the data root
+# (kind_locked_dir).  Pin that root to the operator's before HOME is
+# isolated, or sourcing common.sh finds no kind on PATH.
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$ORIGINAL_HOME/.local/share}"
 export HOME="$TEST_ROOT/home"
 export KUBECONFIG="$TEST_ROOT/kubeconfig"
 export CKA_ROOT="$ROOT"

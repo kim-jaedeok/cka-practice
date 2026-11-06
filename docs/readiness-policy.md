@@ -15,17 +15,24 @@
 
 ## 현재 implementation validation 상태
 
-저장소 구현 검증 상태는 `static-complete-live-pending`이다. 공식 CKA 시험 환경이
-Kubernetes v1.37로 바뀌어, 저장소의 고정 버전을 `v1.37.0`으로 올렸다. 네 필수 suite 중
-세 개는 `v1.37.0`에서 다시 통과했고, 감독형 SSH suite는 아직 실행하지 않았다. 따라서
-live gate 재검증 전에는 저장소를 `practice-ready-live-complete`로 표시하지 않는다.
+저장소 구현 검증 상태는 `practice-ready-live-complete`이다. 공식 CKA 시험 환경이
+Kubernetes v1.37로 바뀌어, 저장소의 고정 버전을 `v1.37.0`으로 올렸다. 네 필수 suite가 모두
+`v1.37.0`에서 다시 통과했다(2026-11-06 완료). 이 상태는 저장소의 구현·live 검증 완료를
+뜻한다. Linux Foundation의 공식 합격 보장이나 개인의 학습 준비 완료 판정이 아니다.
 
-| curriculum 필수 suite | v1.37.0 결과 (2026-11-03, Colima Ubuntu 24.04 aarch64 VM) |
+| curriculum 필수 suite | v1.37.0 결과 (Colima Ubuntu 24.04 aarch64 VM) |
 |---|---|
-| [`tests/kubeadm-live-test.sh`](../tests/kubeadm-live-test.sh) | 통과: `ca-12`, `ca-11`(cp1 중지 후 API write·Service path), `ca-06`(실제 1.36.0→1.37.0 package), 각 cleanup |
-| [`tests/operator-gateway-live-test.sh`](../tests/operator-gateway-live-test.sh) | 통과: `ca-09`, `ca-13`, `sn-05`, 각 cleanup |
-| [`tests/csi-live-test.sh`](../tests/csi-live-test.sh) | 통과: `st-06` canonical·대안 풀이 각각 10/10, cleanup |
-| [`tests/ssh-supervised-live-test.sh`](../tests/ssh-supervised-live-test.sh) | 미실행: 기존 KIND cluster가 없는 clean host가 필요하다 |
+| [`tests/kubeadm-live-test.sh`](../tests/kubeadm-live-test.sh) | 통과(2026-11-03): `ca-12`, `ca-11`(cp1 중지 후 API write·Service path), `ca-06`(실제 1.36.0→1.37.0 package), 각 cleanup |
+| [`tests/operator-gateway-live-test.sh`](../tests/operator-gateway-live-test.sh) | 통과(2026-11-03): `ca-09`, `ca-13`, `sn-05`, 각 cleanup |
+| [`tests/csi-live-test.sh`](../tests/csi-live-test.sh) | 통과(2026-11-03): `st-06` canonical·대안 풀이 각각 10/10, cleanup |
+| [`tests/ssh-supervised-live-test.sh`](../tests/ssh-supervised-live-test.sh) | 통과(2026-11-06): 17문항 104/104 상태에서도 무개입 deadline 후 `TIMEOUT`, guard kill·restart, 실제 base→target SSH, collect·grade, exact cleanup. 종료 후 관련 cluster·node·network·volume 0개 |
+
+감독형 SSH suite를 실행하려면 host에 사용자 D-Bus session bus가 있어야 한다. 이 suite와
+`cka exam-ssh`는 `systemd-run --user`로 deadline unit을 만든다. Colima VM에는
+`dbus-user-session` package가 없어 preflight가 거부했다. package를 설치하고 user
+`dbus.socket`을 시작한 뒤 preflight가 통과했다. 이 suite는 docker network `kind`가 미리 있는
+host도 거부한다. `kind delete cluster`는 이 network를 남기므로, 공유 클러스터를 내린 뒤 빈
+network를 지우고 실행했다.
 
 `v1.37.0` node image의 containerd v2.3.4는 `kind load image-archive` 뒤에 archive 전체
 index를 가리키는 `import-<날짜>@sha256:…` 참조를 남긴다. 이 참조가 첫 image의 Pod
