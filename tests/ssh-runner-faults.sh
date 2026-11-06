@@ -450,6 +450,17 @@ if sup "$case_root" candidate-entry --run-id candidate-entry --engine "$FAKE" >/
 fi
 ok 'candidate entry returns and revalidates only the exact manifest base ID'
 
+# A sealed session closes entry with its own exit status (3), so the runner can
+# keep the run gradable instead of treating a late `enter` as an integrity fault.
+case_root="$(new_case entry-closed)"; network_id="$(external_network "$case_root" closed)"
+prepare_form "$case_root" entry-closed "$network_id" >/dev/null; activate_form "$case_root" entry-closed
+sup "$case_root" seal --run-id entry-closed --engine "$FAKE" --reason manual >/dev/null 2>&1 \
+  || fail 'manual seal fixture failed'
+entry_rc=0
+sup "$case_root" candidate-entry --run-id entry-closed --engine "$FAKE" >/dev/null 2>&1 || entry_rc=$?
+[ "$entry_rc" -eq 3 ] || fail "sealed candidate entry returned $entry_rc instead of 3"
+ok 'candidate entry after a seal reports closed (exit 3), not an integrity fault'
+
 # A premature user transition must not overwrite RUNNING. Cleanup still seals
 # and removes the exact manifest IDs, while preserving the external KIND net.
 case_root="$(new_case transition-cleanup)"; network_id="$(external_network "$case_root" transition)"

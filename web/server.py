@@ -10,6 +10,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CKA_ROOT = os.environ.get("CKA_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -80,7 +81,81 @@ def exam_state():
 
 
 def exam_actions_locked():
-    return exam_state() not in {"NONE", "ARCHIVED", "INVALID"}
+    return exam_state() not in {"NONE", "ARCHIVED", "INVALID"} or ssh_exam_active()
+
+
+# ── 감독형 SSH 시험 (cka exam-ssh) ──
+# 경로는 exam/supervised-exam.sh의 기본값과 같다. 상태 조회는 파일만 읽고,
+# 상태 변경과 문제 본문은 `cka exam-ssh`에 맡겨 runner의 공개 규칙을 그대로 따른다.
+SSH_STATE_HOME = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+SSH_RUNNER_ROOT = os.environ.get("CKA_SSH_RUNNER_STATE_ROOT") or os.path.join(
+    SSH_STATE_HOME, "cka-practice", "exam-ssh")
+SSH_SUPERVISOR_ROOT = os.environ.get("CKA_SSH_SUPERVISOR_STATE_ROOT") or os.path.join(
+    SSH_STATE_HOME, "cka-practice", "ssh-supervisor")
+EXAM_BANK_DIR = os.environ.get("CKA_EXAM_BANK_DIR") or os.path.join(CKA_ROOT, "exam", "bank")
+EXAM_BANK_FORMS_DIR = os.environ.get("CKA_EXAM_BANK_FORMS_DIR") or os.path.join(EXAM_BANK_DIR, "forms")
+EXAM_BANK_LEDGER = os.environ.get("CKA_EXAM_BANK_LEDGER") or os.path.join(
+    SSH_STATE_HOME, "cka-practice", "exam-bank", "ledger.tsv")
+SSH_RUN_ID_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?")
+FORM_RE = re.compile(r"[A-Z]")
+SSH_PHASES = {"PREPARING", "PREPARED", "RUNNING", "SEALED", "COLLECTED", "GRADED", "CLEANED", "INVALID"}
+
+
+def _read_text(path, limit=65536):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read(limit)
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def ssh_exam_state():
+    """Active supervised SSH run as a small dict, read from runner files only."""
+    active = _read_text(os.path.join(SSH_RUNNER_ROOT, "active"))
+    if active is None:
+        return {"active": False}
+    run_id = active.strip()
+    if not SSH_RUN_ID_RE.fullmatch(run_id):
+        return {"active": True, "phase": "CORRUPT"}
+    run_dir = os.path.join(SSH_RUNNER_ROOT, "runs", run_id)
+    phase, _, detail = (_read_text(os.path.join(run_dir, "status")) or "").strip().partition("|")
+    if phase not in SSH_PHASES:
+        phase = "CORRUPT"
+    result = {"active": True, "runId": run_id, "phase": phase, "detail": detail,
+              "form": None, "blind": False, "deadlineEpoch": None, "now": int(time.time())}
+    try:
+        form = json.loads(_read_text(os.path.join(run_dir, "form.json")) or "null")
+        if isinstance(form, dict) and FORM_RE.fullmatch(str(form.get("form", ""))):
+            result["form"] = form["form"]
+            result["blind"] = form.get("blind") is True
+    except ValueError:
+        pass
+    try:
+        manifest = json.loads(_read_text(
+            os.path.join(SSH_SUPERVISOR_ROOT, "runs", run_id, "manifest.json"), 1024 * 1024) or "null")
+        if isinstance(manifest, dict) and isinstance(manifest.get("deadline_epoch"), int):
+            result["deadlineEpoch"] = manifest["deadline_epoch"]
+    except ValueError:
+        pass
+    return result
+
+
+def ssh_exam_active():
+    return ssh_exam_state().get("active", False)
+
+
+def exam_bank_forms():
+    """Form names and exposure only. Never question IDs or contents."""
+    exposed = set()
+    for line in (_read_text(EXAM_BANK_LEDGER, 1024 * 1024) or "").splitlines():
+        fields = line.split("\t")
+        if len(fields) >= 4 and fields[3] == "EXPOSED":
+            exposed.add(fields[0])
+    try:
+        names = sorted(n[:-4] for n in os.listdir(EXAM_BANK_FORMS_DIR) if n.endswith(".tsv"))
+    except OSError:
+        names = []
+    return [{"form": n, "exposed": n in exposed} for n in names if FORM_RE.fullmatch(n)]
 
 
 def list_questions():
@@ -203,11 +278,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/exam/state":
             return self._send(200, {
                 "state": exam_state(),
+                "sshActive": ssh_exam_active(),
                 "practiceLocked": exam_actions_locked(),
             })
         if path.startswith("/api/exam/question/"):
             n = path.rsplit("/", 1)[-1]
             code, out = run_cka(["exam", "question", n], timeout=30)
+            return self._send(200, {"code": code, "output": out})
+        if path == "/api/exam-ssh/state":
+            return self._send(200, ssh_exam_state())
+        if path == "/api/exam-ssh/forms":
+            return self._send(200, exam_bank_forms())
+        if path.startswith("/api/exam-ssh/question/"):
+            n = path.rsplit("/", 1)[-1]
+            if not re.fullmatch(r"[1-9]|1[0-7]", n):
+                return self._send(400, {"error": "question number must be 1-17"})
+            # The runner reveals text only after start (RUNNING and later).
+            code, out = run_cka(["exam-ssh", "question", n], timeout=60)
             return self._send(200, {"code": code, "output": out})
         return self._send(404, {"error": "not found"})
 
@@ -229,9 +316,10 @@ class Handler(BaseHTTPRequestHandler):
             if cmd not in ("start", "grade", "solution", "reset") or not PRACTICE_ID_RE.fullmatch(qid or ""):
                 return self._send(400, {"error": "invalid action"})
             if exam_actions_locked():
+                label = "감독형 SSH 시험" if ssh_exam_active() else "모의고사가 %s 상태" % exam_state()
                 return self._send(409, {
                     "code": 1,
-                    "output": "모의고사가 %s 상태입니다. 시험 중에는 연습용 동작을 사용할 수 없습니다." % exam_state(),
+                    "output": "%s입니다. 시험 중에는 연습용 동작을 사용할 수 없습니다." % label,
                     "status": state_get(qid),
                 })
             # start/reset은 클러스터 셋업이 있어 오래 걸릴 수 있다
@@ -239,10 +327,30 @@ class Handler(BaseHTTPRequestHandler):
             code, out = run_cka([cmd, qid], timeout=timeout)
             return self._send(200, {"code": code, "output": out, "status": state_get(qid)})
 
+        if path == "/api/exam-ssh":
+            cmd = payload.get("cmd", "")
+            if cmd == "begin":
+                form = payload.get("form", "")
+                if not isinstance(form, str) or not FORM_RE.fullmatch(form):
+                    return self._send(400, {"error": "form must be one capital letter"})
+                args = ["exam-ssh", "begin", "--form", form]
+                if payload.get("allowSeen") is True:
+                    args.append("--allow-seen")
+            elif cmd in ("finish", "cleanup"):
+                args = ["exam-ssh", cmd]
+            else:
+                return self._send(400, {"error": "invalid exam-ssh cmd"})
+            # begin runs 17 setups and preflight grades; finish grades and cleans
+            # up 17 questions. Both use the same long bound as the local exam.
+            code, out = run_cka(args, timeout=EXAM_COMMAND_TIMEOUT)
+            return self._send(200, {"code": code, "output": out, "state": ssh_exam_state()})
+
         if path == "/api/exam":
             cmd = payload.get("cmd", "")
             if cmd not in ("start", "finish", "abort"):
                 return self._send(400, {"error": "invalid exam cmd"})
+            if cmd == "start" and ssh_exam_active():
+                return self._send(409, {"code": 1, "output": "감독형 SSH 시험이 활성 상태입니다. 먼저 끝내거나 버리세요."})
             # Seventeen strict setups plus the all-task preflight can take well
             # over ten minutes on a cold machine. Keep the HTTP request alive;
             # the exam timer itself starts only after preparation succeeds.
@@ -257,6 +365,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # web/terminal.sh asks for the phase only; it must not start a server.
+    if len(sys.argv) > 1 and sys.argv[1] == "--ssh-phase":
+        state = ssh_exam_state()
+        print(state.get("phase", "NONE") if state.get("active") else "NONE")
+        return
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 7681
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print("cka web server: http://127.0.0.1:%d (CKA_ROOT=%s)" % (port, CKA_ROOT), flush=True)

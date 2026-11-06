@@ -38,6 +38,12 @@ class ExamLockTest(unittest.TestCase):
         )
         self.assertGreaterEqual(SERVER.EXAM_TERMINATION_GRACE, cleanup + 30)
 
+    def setUp(self):
+        # Keep these local-exam tests independent of a real supervised run.
+        patcher = mock.patch.object(SERVER, "ssh_exam_active", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_only_active_exam_states_lock_practice_actions(self):
         for state in ("PREPARING", "RUNNING", "SEALED", "GRADING"):
             with mock.patch.object(SERVER, "exam_state", return_value=state):
@@ -133,6 +139,144 @@ class ExamLockTest(unittest.TestCase):
             server.server_close()
             thread.join(timeout=3)
             self.assertFalse(thread.is_alive())
+
+
+class _ServerCase(unittest.TestCase):
+    def request(self, method, path, payload=None):
+        server = SERVER.ThreadingHTTPServer(("127.0.0.1", 0), SERVER.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+            try:
+                body = json.dumps(payload) if payload is not None else None
+                connection.request(method, path, body=body, headers={"Content-Type": "application/json"})
+                response = connection.getresponse()
+                return response.status, json.loads(response.read().decode("utf-8"))
+            finally:
+                connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
+
+class SshExamWebTest(_ServerCase):
+    """Supervised SSH exam (cka exam-ssh) support in the web UI."""
+
+    def setUp(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = pathlib.Path(tmp.name)
+        self.runner = self.root / "runner"
+        self.supervisor = self.root / "supervisor"
+        self.forms = self.root / "forms"
+        self.ledger = self.root / "ledger.tsv"
+        for name, value in {
+            "SSH_RUNNER_ROOT": str(self.runner),
+            "SSH_SUPERVISOR_ROOT": str(self.supervisor),
+            "EXAM_BANK_FORMS_DIR": str(self.forms),
+            "EXAM_BANK_LEDGER": str(self.ledger),
+        }.items():
+            patcher = mock.patch.object(SERVER, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def make_run(self, run_id="ssh-1", phase="RUNNING", form=None, deadline=None):
+        run = self.runner / "runs" / run_id
+        run.mkdir(parents=True)
+        (self.runner / "active").write_text(run_id, encoding="utf-8")
+        (run / "status").write_text(f"{phase}|detail", encoding="utf-8")
+        if form:
+            (run / "form.json").write_text(json.dumps({"form": form, "blind": True}), encoding="utf-8")
+        if deadline:
+            sup = self.supervisor / "runs" / run_id
+            sup.mkdir(parents=True)
+            (sup / "manifest.json").write_text(json.dumps({"deadline_epoch": deadline}), encoding="utf-8")
+
+    def test_state_without_an_active_run(self):
+        self.assertEqual(SERVER.ssh_exam_state(), {"active": False})
+        self.assertFalse(SERVER.ssh_exam_active())
+
+    def test_state_reports_phase_form_and_deadline(self):
+        self.make_run(phase="RUNNING", form="A", deadline=2000000000)
+        state = SERVER.ssh_exam_state()
+        self.assertEqual(
+            {k: state[k] for k in ("active", "runId", "phase", "form", "blind", "deadlineEpoch")},
+            {"active": True, "runId": "ssh-1", "phase": "RUNNING", "form": "A",
+             "blind": True, "deadlineEpoch": 2000000000},
+        )
+        with mock.patch.object(SERVER, "exam_state", return_value="NONE"):
+            self.assertTrue(SERVER.exam_actions_locked())
+            status, body = self.request("GET", "/api/exam/state")
+        self.assertEqual(status, 200)
+        self.assertEqual((body["sshActive"], body["practiceLocked"]), (True, True))
+
+    def test_unexpected_run_id_or_phase_is_corrupt(self):
+        self.runner.mkdir()
+        (self.runner / "active").write_text("../escape", encoding="utf-8")
+        self.assertEqual(SERVER.ssh_exam_state(), {"active": True, "phase": "CORRUPT"})
+        (self.runner / "active").unlink()
+        self.make_run(phase="RUNNIN")
+        self.assertEqual(SERVER.ssh_exam_state()["phase"], "CORRUPT")
+
+    def test_forms_list_names_and_exposure_only(self):
+        self.forms.mkdir()
+        for name in ("A.tsv", "B.tsv", "lower.tsv", "README.md"):
+            (self.forms / name).write_text("ex-ts-01|1|||\n", encoding="utf-8")
+        self.ledger.write_text("A\tssh-1\t2026-11-06T00:00:00Z\tEXPOSED\n", encoding="utf-8")
+        forms = SERVER.exam_bank_forms()
+        self.assertEqual(forms, [{"form": "A", "exposed": True}, {"form": "B", "exposed": False}])
+        self.assertNotIn("ex-", json.dumps(forms))
+
+    def test_phase_cli_for_the_terminal_wrapper(self):
+        self.make_run(phase="RUNNING")
+        env = dict(SERVER.os.environ, CKA_SSH_RUNNER_STATE_ROOT=str(self.runner),
+                   CKA_SSH_SUPERVISOR_STATE_ROOT=str(self.supervisor))
+        out = subprocess.run(["python3", str(ROOT / "web" / "server.py"), "--ssh-phase"],
+                             env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(out.stdout.strip(), "RUNNING")
+        (self.runner / "active").unlink()
+        out = subprocess.run(["python3", str(ROOT / "web" / "server.py"), "--ssh-phase"],
+                             env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(out.stdout.strip(), "NONE")
+
+    def test_actions_validate_input_and_delegate_to_cka(self):
+        with mock.patch.object(SERVER, "run_cka", return_value=(0, "ok")) as run_cka:
+            for bad in ({"cmd": "begin", "form": "a"}, {"cmd": "begin", "form": "AB"},
+                        {"cmd": "begin"}, {"cmd": "seal"}, {"cmd": "start"}):
+                status, _ = self.request("POST", "/api/exam-ssh", bad)
+                self.assertEqual(status, 400, bad)
+            run_cka.assert_not_called()
+
+            self.request("POST", "/api/exam-ssh", {"cmd": "begin", "form": "B", "allowSeen": True})
+            self.request("POST", "/api/exam-ssh", {"cmd": "begin", "form": "A", "allowSeen": "yes"})
+            self.request("POST", "/api/exam-ssh", {"cmd": "finish"})
+            self.request("POST", "/api/exam-ssh", {"cmd": "cleanup"})
+            self.assertEqual([c.args[0] for c in run_cka.call_args_list], [
+                ["exam-ssh", "begin", "--form", "B", "--allow-seen"],
+                ["exam-ssh", "begin", "--form", "A"],
+                ["exam-ssh", "finish"],
+                ["exam-ssh", "cleanup"],
+            ])
+
+    def test_question_number_is_bounded_and_text_comes_from_the_runner(self):
+        with mock.patch.object(SERVER, "run_cka", return_value=(0, "body")) as run_cka:
+            for bad in ("0", "18", "x", "01"):
+                status, _ = self.request("GET", "/api/exam-ssh/question/" + bad)
+                self.assertEqual(status, 400, bad)
+            status, body = self.request("GET", "/api/exam-ssh/question/17")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["output"], "body")
+        run_cka.assert_called_once_with(["exam-ssh", "question", "17"], timeout=60)
+
+    def test_local_exam_cannot_start_during_a_supervised_run(self):
+        self.make_run(phase="RUNNING")
+        with mock.patch.object(SERVER, "run_cka") as run_cka:
+            status, _ = self.request("POST", "/api/exam", {"cmd": "start"})
+        self.assertEqual(status, 409)
+        run_cka.assert_not_called()
 
 
 if __name__ == "__main__":

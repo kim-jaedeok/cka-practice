@@ -80,6 +80,18 @@ class EngineError(SupervisorError):
     """Container engine command failed."""
 
 
+class EntryClosedError(SupervisorError):
+    """Candidate entry ended normally: the deadline passed or a seal exists.
+
+    This is not an integrity fault.  The runner must leave a closed run
+    gradable instead of invalidating it, so main() reports it with its own
+    exit status (ENTRY_CLOSED_EXIT).
+    """
+
+
+ENTRY_CLOSED_EXIT = 3
+
+
 class EngineTimeout(EngineError):
     """Container engine command exceeded its bound."""
 
@@ -2438,10 +2450,11 @@ def command_candidate_entry(args: argparse.Namespace) -> int:
         manifest, digest = store.load_manifest()
         store.require_active(manifest["run_nonce"])
         status = store.read_status()
-        if status.get("phase") != "RUNNING" or not status.get("valid"):
+        if not status.get("valid"):
             raise SupervisorError("candidate entry is available only for a valid running session")
-        if epoch_now() >= manifest["deadline_epoch"] or store.seal_proof_path.exists():
-            raise SupervisorError("candidate entry is closed because the session deadline or seal was reached")
+        if (status.get("phase") != "RUNNING" or epoch_now() >= manifest["deadline_epoch"]
+                or store.seal_proof_path.exists()):
+            raise EntryClosedError("candidate entry is closed because the session deadline or seal was reached")
         engine = engine_from_manifest(manifest, args.engine)
         inspect_exact_topology(engine, manifest)
         inspect_container_identity(engine, manifest, "target", require_running=True)
@@ -2643,6 +2656,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.function(args))
+    except EntryClosedError as exc:
+        print(f"ssh-supervisor: {exc}", file=sys.stderr)
+        return ENTRY_CLOSED_EXIT
     except SupervisorError as exc:
         print(f"ssh-supervisor: {exc}", file=sys.stderr)
         return 2

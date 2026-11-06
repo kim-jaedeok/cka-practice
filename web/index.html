@@ -101,16 +101,40 @@
     <!-- 모의고사 탭 -->
     <div id="examTab" class="hidden" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
       <div class="btnrow">
-        <button id="btnExamStart" class="primary">모의고사 시작</button>
-        <button id="btnExamStatus">상태</button>
-        <button id="btnExamFinish">종료·채점</button>
-        <button id="btnExamAbort">중단</button>
-        <span style="flex:1"></span>
-        <span>남은 시간: <span id="examTimer">--:--:--</span></span>
+        <select id="examMode" style="flex:1;min-width:180px;">
+          <option value="bank">시험 은행 form · 감독형 SSH (준비도 판정에 반영)</option>
+          <option value="local">연습 문제 모의고사 · 로컬 (준비도 판정에 미반영)</option>
+        </select>
       </div>
-      <div class="btnrow" id="examNav"></div>
+
+      <!-- 시험 은행 form (cka exam-ssh) -->
+      <div id="bankExam">
+        <div class="btnrow">
+          <select id="bankForm"></select>
+          <button id="btnBankBegin" class="primary">시작</button>
+          <button id="btnBankFinish">종료·채점</button>
+          <button id="btnBankDiscard">버리기</button>
+          <span style="flex:1"></span>
+          <span>남은 시간: <span id="bankTimer">--:--:--</span></span>
+        </div>
+        <div class="btnrow" id="bankNav"></div>
+      </div>
+
+      <!-- 연습 문제 모의고사 (cka exam) -->
+      <div id="localExam" class="hidden">
+        <div class="btnrow">
+          <button id="btnExamStart" class="primary">모의고사 시작</button>
+          <button id="btnExamStatus">상태</button>
+          <button id="btnExamFinish">종료·채점</button>
+          <button id="btnExamAbort">중단</button>
+          <span style="flex:1"></span>
+          <span>남은 시간: <span id="examTimer">--:--:--</span></span>
+        </div>
+        <div class="btnrow" id="examNav"></div>
+      </div>
+
       <div id="content">
-        <div id="examBody"><p style="color:var(--muted)">「모의고사 시작」을 누르면 17문제 환경이 구성됩니다 (몇 분 소요).</p></div>
+        <div id="examBody"><p style="color:var(--muted)">form을 고르고 「시작」을 누르세요. 준비에 2~3분 걸리고, 준비가 끝나면 2시간 타이머가 시작됩니다.</p></div>
       </div>
     </div>
 
@@ -192,7 +216,8 @@ async function syncExamLock() {
     practiceLockedByExam = !!s.practiceLocked;
     document.querySelectorAll('#practiceTab button').forEach(b => {
       b.disabled = practiceLockedByExam;
-      b.title = practiceLockedByExam ? `모의고사 ${s.state} 상태에서는 사용할 수 없습니다.` : '';
+      const why = s.sshActive ? '감독형 SSH 시험 중에는' : `모의고사 ${s.state} 상태에서는`;
+      b.title = practiceLockedByExam ? `${why} 사용할 수 없습니다.` : '';
     });
   } catch (_) { /* 다음 API 요청도 서버에서 다시 검증한다. */ }
 }
@@ -350,10 +375,145 @@ async function examAction(cmd) {
     if (cmd === 'start') { startExamPoll(); await examStatus(true); }
     if (cmd === 'finish' || cmd === 'abort') stopExamPoll();
   } catch (e) { log('요청 실패: ' + e, 'bad'); }
-  finally { btns.forEach(b => b.disabled = false); await syncExamLock(); }
+  finally { btns.forEach(b => b.disabled = false); await syncExamLock(); await bankState().catch(() => {}); }
 }
 function startExamPoll() { stopExamPoll(); examPoll = setInterval(() => examStatus(true), 5000); }
 function stopExamPoll() { if (examPoll) { clearInterval(examPoll); examPoll = null; } $('examTimer').textContent = '--:--:--'; }
+
+// ── 시험 은행 form (감독형 SSH) ──
+// 문제 본문은 runner가 시작 뒤에만 내준다. 이 화면은 form 이름과 노출 여부만 다룬다.
+let bankPoll = null, bankTick = null, bankDeadline = null, bankClockOffset = 0, bankPhase = null;
+let bankBusy = false;   // begin/finish/cleanup 요청 중에는 polling이 버튼을 다시 켜지 않는다
+const BANK_REVIEW_PHASES = ['RUNNING', 'SEALED', 'COLLECTED', 'GRADED'];
+function fmtHms(s) {
+  if (s < 0) s = 0;
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return [h, m, sec].map(v => String(v).padStart(2, '0')).join(':');
+}
+function reloadTerminal() { const t = $('term'); t.src = t.src; }
+function renderBankTimer() {
+  const el = $('bankTimer');
+  if (bankPhase !== 'RUNNING' || !bankDeadline) { el.textContent = '--:--:--'; el.style.color = ''; return; }
+  const left = bankDeadline - (Math.floor(Date.now() / 1000) + bankClockOffset);
+  el.textContent = fmtHms(left);
+  el.style.color = left <= 0 ? 'var(--red)' : (left <= 600 ? 'var(--yellow)' : '');
+}
+async function loadBankForms() {
+  const forms = await (await fetch('/api/exam-ssh/forms')).json();
+  const sel = $('bankForm'); const cur = sel.value; sel.innerHTML = '';
+  forms.forEach(f => {
+    const o = document.createElement('option');
+    o.value = f.form; o.dataset.exposed = f.exposed ? '1' : '';
+    o.textContent = `form ${f.form}` + (f.exposed ? ' (이미 봄 · blind 아님)' : '');
+    sel.appendChild(o);
+  });
+  if (cur) sel.value = cur;
+}
+async function bankState() {
+  const s = await (await fetch('/api/exam-ssh/state')).json();
+  bankPhase = s.active ? s.phase : null;
+  bankDeadline = s.deadlineEpoch || null;
+  if (s.now) bankClockOffset = s.now - Math.floor(Date.now() / 1000);
+  const running = BANK_REVIEW_PHASES.includes(bankPhase);
+  $('btnBankBegin').disabled = bankBusy || !!s.active;
+  $('bankForm').disabled = bankBusy || !!s.active;
+  $('btnBankFinish').disabled = bankBusy || !s.active;
+  $('btnBankDiscard').disabled = bankBusy || !s.active;
+  const nav = $('bankNav');
+  if (running && !nav.childElementCount) {
+    for (let n = 1; n <= 17; n++) {
+      const b = document.createElement('button');
+      b.textContent = 'Q' + n; b.style.padding = '4px 8px';
+      b.onclick = () => bankQuestion(n);
+      nav.appendChild(b);
+    }
+  } else if (!running) nav.innerHTML = '';
+  // 진행 중인 run의 form을 보여 준다. 연습 문제로 만든 seeded run은 form이 없다.
+  const sel = $('bankForm');
+  sel.querySelectorAll('option[data-seeded]').forEach(o => o.remove());
+  if (s.active && s.form) sel.value = s.form;
+  else if (s.active) {
+    const o = document.createElement('option');
+    o.dataset.seeded = '1'; o.value = ''; o.textContent = '연습 seeded form';
+    sel.appendChild(o); sel.value = '';
+  }
+  renderBankTimer();
+  if (bankPhase === 'RUNNING') startBankPoll(); else stopBankPoll();
+  await syncExamLock();
+  return s;
+}
+async function bankQuestion(n) {
+  document.querySelectorAll('#bankNav button').forEach((b, i) => b.classList.toggle('primary', i + 1 === n));
+  const r = await (await fetch('/api/exam-ssh/question/' + n)).json();
+  if (r.code !== 0) { logResult(r.output || r.error || '(문제를 가져오지 못했습니다)'); return; }
+  $('examBody').innerHTML = renderMarkdown(r.output.trim());
+}
+async function bankAction(cmd, body, waitMsg) {
+  const btns = document.querySelectorAll('#examTab button, #bankForm');
+  bankBusy = true;
+  btns.forEach(b => b.disabled = true);
+  clearConsole();
+  log(`$ cka exam-ssh ${cmd}${body.form ? ' --form ' + body.form : ''}${body.allowSeen ? ' --allow-seen' : ''}`, 'dim');
+  if (waitMsg) log(waitMsg, 'dim');
+  try {
+    const r = await (await fetch('/api/exam-ssh', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Object.assign({cmd}, body))
+    })).json();
+    logResult(r.output || r.error || '(출력 없음)');
+    if (cmd === 'finish' || cmd === 'cleanup') {
+      // 진행 줄(exam-ssh: ...)과 상태 JSON을 빼고 채점 결과만 본문에 남긴다.
+      const result = (r.output || '').split('\n')
+        .filter(l => l.trim() && !/^exam-ssh:|^\{|^supervised SSH run cleaned/.test(l))
+        .join('\n');
+      $('bankNav').innerHTML = '';
+      $('examBody').innerHTML = cmd === 'finish' && r.code === 0
+        ? '<h2>결과</h2><pre><code></code></pre>'
+        : '<p style="color:var(--muted)">시험을 정리했습니다. form을 고르고 「시작」을 누르면 새 시험을 시작합니다.</p>';
+      const code = $('examBody').querySelector('code');
+      if (code) code.textContent = result || '(결과 줄이 없습니다. 아래 콘솔을 보세요)';
+    }
+  } catch (e) { log('요청 실패: ' + e, 'bad'); }
+  finally {
+    bankBusy = false;
+    document.querySelectorAll('#localExam button').forEach(b => b.disabled = false);
+    await loadBankForms();
+    await bankState();
+    reloadTerminal();   // 시험 중이면 base host, 아니면 일반 셸로 다시 연결된다
+  }
+}
+function startBankPoll() {
+  if (!bankTick) bankTick = setInterval(renderBankTimer, 1000);
+  if (!bankPoll) bankPoll = setInterval(() => bankState().catch(() => {}), 15000);
+}
+function stopBankPoll() {
+  if (bankTick) { clearInterval(bankTick); bankTick = null; }
+  if (bankPoll) { clearInterval(bankPoll); bankPoll = null; }
+}
+$('btnBankBegin').onclick = () => {
+  const opt = $('bankForm').selectedOptions[0];
+  if (!opt) return;
+  const form = opt.value, seen = !!opt.dataset.exposed;
+  const msg = seen
+    ? `form ${form}은 이미 본 form입니다. 다시 풀면 blind가 아니어서 준비도 판정에 반영되지 않습니다. 시작할까요?`
+    : `form ${form}을 시작합니다. 준비가 끝나면 2시간 타이머가 시작되고, form ${form}은 노출로 기록됩니다. 시작할까요?`;
+  if (!confirm(msg)) return;
+  bankAction('begin', {form, allowSeen: seen},
+    '17문제 환경을 준비하는 중입니다 (2~3분). 끝나면 오른쪽 터미널이 base host로 연결됩니다.');
+};
+$('btnBankFinish').onclick = () => {
+  if (!confirm('지금 제출하고 채점할까요? 제출하면 더 풀 수 없습니다.')) return;
+  bankAction('finish', {}, '제출·채점·정리 중입니다. 17문제 정리까지 몇 분 걸릴 수 있습니다.');
+};
+$('btnBankDiscard').onclick = () => {
+  if (!confirm('채점하지 않고 이 시험을 버립니다. 결과가 남지 않습니다. 계속할까요?')) return;
+  bankAction('cleanup', {}, '시험 환경을 정리하는 중입니다.');
+};
+$('examMode').onchange = (e) => {
+  const bank = e.target.value === 'bank';
+  $('bankExam').classList.toggle('hidden', !bank);
+  $('localExam').classList.toggle('hidden', bank);
+};
 
 $('btnExamStart').onclick = () => examAction('start');
 $('btnExamStatus').onclick = () => examStatus(false);
@@ -383,6 +543,8 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 
 // 최초 로드 시 기본 선택된 문제의 지문을 바로 출력 (init과 무관)
 loadQuestions().then(() => { const id = $('qselect').value; if (id) showQuestion(id); });
+// 새로고침해도 진행 중인 감독형 SSH 시험의 버튼·타이머 상태를 되살린다.
+loadBankForms().then(bankState).catch(() => {});
 </script>
 </body>
 </html>

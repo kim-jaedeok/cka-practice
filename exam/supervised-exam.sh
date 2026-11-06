@@ -911,9 +911,14 @@ cmd_question() {
 cmd_enter() {
   load_run
   [ "$STATUS_PHASE" = RUNNING ] || runner_transition_error "candidate entry requires RUNNING, found $STATUS_PHASE"
-  local entry base_id
+  local entry base_id rc=0
   entry="$(CKA_SSH_SUPERVISOR_STATE_ROOT="$SUPERVISOR_ROOT" bash "$SESSION" candidate-entry --run-id "$RUN_ID")" \
-    || runner_integrity_invalid "supervisor denied candidate entry"
+    || rc=$?
+  # Exit 3 (supervisor ENTRY_CLOSED_EXIT): the deadline passed or the run was
+  # sealed.  That is a normal end, so keep the run gradable.
+  [ "$rc" -ne 3 ] \
+    || runner_transition_error "the exam session is closed (deadline or seal); grade it with 'cka exam-ssh finish'"
+  [ "$rc" -eq 0 ] || runner_integrity_invalid "supervisor denied candidate entry"
   base_id="$(printf '%s' "$entry" | python3 -c 'import json,re,sys; v=json.load(sys.stdin).get("base_container_id",""); print(v) if re.fullmatch(r"[0-9a-f]{64}",v) else sys.exit(1)')" \
     || runner_integrity_invalid "supervisor returned an invalid base identity"
   command -v "$ENGINE" >/dev/null 2>&1 || runner_transition_error "container engine is unavailable"

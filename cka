@@ -16,7 +16,7 @@ deny_if_exam_locked() {
     die "모의고사가 $(exam_state_get) 상태입니다. 시험 중에는 start/grade/solution/reset/cleanup 및 클러스터 변경을 사용할 수 없습니다."
   fi
   supervised_exam_actions_locked || return 0
-  die "감독형 SSH 모의고사가 활성 상태입니다. 먼저 'cka exam-ssh cleanup'을 실행하세요."
+  die "감독형 SSH 모의고사가 활성 상태입니다. 채점하려면 'cka exam-ssh finish', 채점 없이 버리려면 'cka exam-ssh cleanup'을 실행하세요."
 }
 
 usage() {

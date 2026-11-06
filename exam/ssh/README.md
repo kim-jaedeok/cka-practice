@@ -68,6 +68,13 @@ VM(Linux) 터미널 2개를 쓴다. 명령은 네 가지다.
 `finish`는 채점할 수 없는 run(`INVALID` 등)은 지우지 않고 멈춘다. 그런 run은
 `cka exam-ssh cleanup`으로 버린다. `cleanup`은 채점하지 않는다.
 
+웹 UI(`cka web`)의 「모의고사」 탭에서도 같은 흐름을 버튼으로 진행한다. 이때 오른쪽 터미널이
+base host에 연결되므로 터미널을 하나만 쓴다.
+
+deadline이 지나거나 run이 봉인된 뒤 `enter`를 실행하면 supervisor는 종료 코드 3("진입 닫힘")을
+돌려준다. runner는 이 경우 run을 무효화하지 않고 `finish`로 채점하라고 안내한다. 다른 진입 거부는
+지금처럼 무결성 오류로 보고 run을 `INVALID`로 바꾼다.
+
 아래는 같은 흐름을 단계별 명령으로 실행하는 예다.
 
 ```bash
