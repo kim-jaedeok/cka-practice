@@ -27,6 +27,9 @@ EXAM_BANK_LEDGER="${CKA_EXAM_BANK_LEDGER:-$STATE_HOME/cka-practice/exam-bank/led
 READINESS_POLICY="${CKA_READINESS_POLICY:-$SCRIPT_DIR/readiness-policy.yaml}"
 
 runner_die() { printf 'exam-ssh: %s\n' "$*" >&2; exit 2; }
+# Progress goes to stderr so stdout stays a stable result channel.  Print
+# question IDs only, never object names (exam bank blind rule).
+runner_progress() { printf 'exam-ssh: %s\n' "$*" >&2; }
 runner_transition_error() { runner_die "$1 (runner phase remains ${STATUS_PHASE:-unknown})"; }
 runner_integrity_invalid() {
   local reason="${1:-invalid supervised run}"
@@ -587,21 +590,34 @@ runner_materialize_work_roots() { # <questions-file>
 }
 
 cleanup_selected_questions() {
-  local questions_file="$1" qid qdir failed=0
+  local questions_file="$1" qid qdir failed=0 total index=0 started rc
   [ -r "$questions_file" ] || return 0
+  total="$(grep -c . "$questions_file" || true)"
   while IFS= read -r qid; do
     [ -n "$qid" ] || continue
-    qdir="$(question_dir "$qid")" || { failed=1; continue; }
+    index=$((index + 1)); started=$SECONDS; rc=0
+    runner_progress "cleanup [$index/$total] $qid: removing question resources..."
+    qdir="$(question_dir "$qid")" || {
+      failed=1
+      runner_progress "cleanup [$index/$total] $qid: FAILED (question directory not found)"
+      continue
+    }
     if [ -f "$qdir/teardown.sh" ] && [ ! -L "$qdir/teardown.sh" ]; then
       timeout --signal=TERM --kill-after=5s 120s env \
         CKA_WORK_DIR="$RUN_DIR/work" CKA_STATE_DIR="$RUN_DIR/grader-state" \
-        bash "$qdir/teardown.sh" >> "$RUN_DIR/cleanup.log" 2>&1 || failed=1
+        bash "$qdir/teardown.sh" >> "$RUN_DIR/cleanup.log" 2>&1 || rc=1
     fi
     timeout --signal=TERM --kill-after=5s 120s env \
       CKA_WORK_DIR="$RUN_DIR/work" CKA_STATE_DIR="$RUN_DIR/grader-state" \
       bash -c \
       'set -uo pipefail; source "$1"; cleanup_question "$2"' _ \
-      "$CKA_ROOT/lib/common.sh" "$qid" >> "$RUN_DIR/cleanup.log" 2>&1 || failed=1
+      "$CKA_ROOT/lib/common.sh" "$qid" >> "$RUN_DIR/cleanup.log" 2>&1 || rc=1
+    if [ "$rc" -eq 0 ]; then
+      runner_progress "cleanup [$index/$total] $qid: done ($((SECONDS - started))s)"
+    else
+      failed=1
+      runner_progress "cleanup [$index/$total] $qid: FAILED ($((SECONDS - started))s, see $RUN_DIR/cleanup.log)"
+    fi
   done < "$questions_file"
   return "$failed"
 }
@@ -1029,13 +1045,21 @@ PY
 cmd_cleanup() {
   load_run
   local failed=0
+  runner_progress "cleanup run $RUN_ID (phase ${STATUS_PHASE:-unknown}); details go to $RUN_DIR/cleanup.log"
   if [ -f "$SUPERVISOR_ROOT/runs/$RUN_ID/manifest.json" ]; then
     # Seal is idempotent. Always attempt it before removal, including when an
     # earlier integrity failure changed only the runner phase to INVALID.
+    runner_progress "cleanup: sealing the candidate session..."
     CKA_SSH_SUPERVISOR_STATE_ROOT="$SUPERVISOR_ROOT" bash "$SESSION" seal --run-id "$RUN_ID" --reason operator \
       >> "$RUN_DIR/cleanup.log" 2>&1 || true
-    CKA_SSH_SUPERVISOR_STATE_ROOT="$SUPERVISOR_ROOT" bash "$SESSION" cleanup --run-id "$RUN_ID" \
-      >> "$RUN_DIR/cleanup.log" 2>&1 || failed=1
+    runner_progress "cleanup: removing base/target containers and the supervisor network..."
+    if CKA_SSH_SUPERVISOR_STATE_ROOT="$SUPERVISOR_ROOT" bash "$SESSION" cleanup --run-id "$RUN_ID" \
+        >> "$RUN_DIR/cleanup.log" 2>&1; then
+      runner_progress "cleanup: supervisor objects removed"
+    else
+      failed=1
+      runner_progress "cleanup: supervisor cleanup FAILED (see cleanup.log)"
+    fi
   elif [ -d "$SUPERVISOR_ROOT/runs/$RUN_ID" ]; then
     # A prepare failure can leave audit-only state after exact journal recovery.
     # Accept it only with the create-once recovery proof and no active record.
