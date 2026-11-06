@@ -56,6 +56,20 @@ systemd timer/transient service의 공식 동작은
 
 ## 실행 순서
 
+VM(Linux) 터미널 2개를 쓴다. 명령은 네 가지다.
+
+| 터미널 | 명령 | 하는 일 |
+|---|---|---|
+| A | `cka exam-ssh begin --form A` | 준비(`prepare`)와 시작(`start`). 이때부터 시간이 흐른다 |
+| A | `cka exam-ssh question N` | N번 문제(1~17)를 보여 준다 |
+| B | `cka exam-ssh enter` 뒤 `ssh cka-target` | 풀이 host에 들어간다. 문제마다 첫 줄의 `cka-use-context <id>`를 실행한다 |
+| A | `cka exam-ssh finish` | 남은 `seal → collect → grade`를 실행하고 `cleanup`한다. deadline으로 끝난 run에도 쓴다 |
+
+`finish`는 채점할 수 없는 run(`INVALID` 등)은 지우지 않고 멈춘다. 그런 run은
+`cka exam-ssh cleanup`으로 버린다. `cleanup`은 채점하지 않는다.
+
+아래는 같은 흐름을 단계별 명령으로 실행하는 예다.
+
 ```bash
 cka exam-ssh preflight
 cka exam-ssh prepare --run-id rehearsal01 --seed rehearsal-1

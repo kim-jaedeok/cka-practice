@@ -218,7 +218,7 @@ cmd_exam_entry() {
 
 cmd_exam_ssh_entry() {
   local action="${1:-help}"
-  [ "$action" != prepare ] || deny_if_exam_locked
+  case "$action" in prepare|begin) deny_if_exam_locked ;; esac
   bash "$CKA_ROOT/exam/supervised-exam.sh" "$@"
 }
 
@@ -241,7 +241,7 @@ infrastructure_gate_mode() { # <cka argv...>; prints wait|nowait|none
       ;;
     exam-ssh)
       case "${action:-help}" in
-        prepare) printf '%s\n' nowait ;;
+        prepare|begin) printf '%s\n' nowait ;;
         *) printf '%s\n' none ;;
       esac
       ;;

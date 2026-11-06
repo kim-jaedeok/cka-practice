@@ -48,6 +48,12 @@ runner_integrity_invalid() {
 usage() {
   cat <<'EOF'
 usage:
+  cka exam-ssh begin --form NAME [--allow-seen]   prepare + start in one step
+  cka exam-ssh question N                         show question N (1-17)
+  cka exam-ssh enter                              open the base host, then: ssh cka-target
+  cka exam-ssh finish                             seal + collect + grade + cleanup
+
+Step-by-step commands:
   cka exam-ssh preflight [--install-linger]
   cka exam-ssh prepare [--run-id ID] [--seed SEED] [--duration-seconds N]
   cka exam-ssh prepare --form NAME [--allow-seen] [--run-id ID] [--duration-seconds N]
@@ -1081,6 +1087,38 @@ PY
   printf 'supervised SSH run cleaned; audit retained at %s\n' "$RUN_DIR"
 }
 
+# One-step entry: prepare the form, then start the timer and containers.
+cmd_begin() {
+  cmd_prepare "$@"
+  runner_progress "begin: form prepared; starting the timed session..."
+  cmd_start
+  printf 'Questions: cka exam-ssh question 1 .. 17 (this terminal)\n'
+  printf 'Work:      cka exam-ssh enter, then ssh cka-target (another terminal)\n'
+  printf 'Finish:    cka exam-ssh finish\n'
+}
+
+# One-step exit: run whichever of seal, collect and grade remain, then clean
+# up.  A deadline-sealed run is still RUNNING for the runner, and the
+# supervisor seal is idempotent, so the same path covers both endings.
+cmd_finish() {
+  load_run
+  if [ "$STATUS_PHASE" = RUNNING ]; then
+    runner_progress "finish: sealing the session (candidate access stops)..."
+    cmd_seal; load_run
+  fi
+  if [ "$STATUS_PHASE" = SEALED ]; then
+    runner_progress "finish: collecting answer files..."
+    cmd_collect; load_run
+  fi
+  if [ "$STATUS_PHASE" = COLLECTED ]; then
+    runner_progress "finish: grading 17 questions..."
+    cmd_grade; load_run
+  fi
+  [ "$STATUS_PHASE" = GRADED ] \
+    || runner_die "finish needs a gradable run, found $STATUS_PHASE; use 'cka exam-ssh cleanup' to discard it"
+  cmd_cleanup
+}
+
 main() {
   require_native_runner_root
   local command="${1:-help}"; shift || true
@@ -1091,6 +1129,8 @@ main() {
   case "$command" in
     preflight) cmd_preflight "$@" ;;
     prepare) cmd_prepare "$@" ;;
+    begin) cmd_begin "$@" ;;
+    finish) [ "$#" -eq 0 ] || runner_die 'finish takes no arguments'; cmd_finish ;;
     start) [ "$#" -eq 0 ] || runner_die 'start takes no arguments'; cmd_start ;;
     status) [ "$#" -eq 0 ] || runner_die 'status takes no arguments'; cmd_status ;;
     question) [ "$#" -eq 1 ] || runner_die 'question requires N'; cmd_question "$1" ;;

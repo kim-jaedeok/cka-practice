@@ -698,4 +698,38 @@ result="$(bank_grade_case seeded-practice '')" || fail 'seeded grading failed'
   || fail 'seeded practice run counted toward readiness'
 ok 'result.json records domain scores and readiness needs a blind form and domain gates'
 
+# begin = prepare then start; finish runs only the remaining transitions and
+# never cleans up a run it could not grade.
+step_trace() { # <case> <initial phase> <function> -> prints "rc:trace"
+  local root rc
+  root="$(new_case "$1")"
+  printf '%s\n' "$2" > "$root/phase"
+  : > "$root/trace"
+  CKA_SSH_RUNNER_SOURCE_ONLY=1 RUNNER_UNDER_TEST="$RUNNER" CASE_ROOT="$root" FN="$3" bash -c '
+    source "$RUNNER_UNDER_TEST"
+    load_run(){ STATUS_PHASE="$(<"$CASE_ROOT/phase")"; }
+    step(){ printf "%s " "$1" >> "$CASE_ROOT/trace"; [ -z "${2:-}" ] || printf "%s\n" "$2" > "$CASE_ROOT/phase"; }
+    cmd_prepare(){ step prepare PREPARED; [ "${1:-}" != --fail ] || exit 2; }
+    cmd_start(){ step start RUNNING; }
+    cmd_seal(){ step seal SEALED; }
+    cmd_collect(){ step collect COLLECTED; }
+    cmd_grade(){ step grade GRADED; }
+    cmd_cleanup(){ step cleanup CLEANED; }
+    "$FN" ${STEP_ARGS:-}
+  ' >/dev/null 2>&1
+  rc=$?
+  printf '%s:%s\n' "$rc" "$(<"$root/trace")"
+}
+[ "$(step_trace finish-running RUNNING cmd_finish)" = '0:seal collect grade cleanup ' ] \
+  || fail 'finish from RUNNING did not run every remaining step in order'
+[ "$(step_trace finish-collected COLLECTED cmd_finish)" = '0:grade cleanup ' ] \
+  || fail 'finish repeated a completed step'
+[ "$(step_trace finish-invalid INVALID cmd_finish)" = '2:' ] \
+  || fail 'finish cleaned up an ungradable run'
+[ "$(step_trace begin-ok NONE cmd_begin)" = '0:prepare start ' ] \
+  || fail 'begin did not prepare then start'
+[ "$(STEP_ARGS=--fail step_trace begin-fail NONE cmd_begin)" = '2:prepare ' ] \
+  || fail 'begin started after a failed prepare'
+ok 'begin and finish run the step-by-step transitions in order and stop on failure'
+
 printf '1..%d\n' "$PASS"

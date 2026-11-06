@@ -65,11 +65,11 @@ node나 control plane을 바꾸는 문제는 teardown에서 원래 상태로 되
 ## 실행과 노출 기록
 
 ```bash
-cka exam-ssh prepare --form A
-cka exam-ssh start
+cka exam-ssh begin --form A    # prepare + start
+cka exam-ssh finish            # 끝나면 seal + collect + grade + cleanup
 ```
 
-- `start`는 후보자 접근을 열기 전에 form을 `~/.local/state/cka-practice/exam-bank/ledger.tsv`에
+- `start`(또는 `begin`)는 후보자 접근을 열기 전에 form을 `~/.local/state/cka-practice/exam-bank/ledger.tsv`에
   `EXPOSED`로 기록한다. run이 실패해도 기록은 남는다.
 - 노출된 form은 `--allow-seen` 없이 다시 준비할 수 없다. `--allow-seen` run은 blind가 아니다.
 - `grade`는 run 디렉터리의 `result.json`에 문제별·도메인별 점수, blind 여부, 준비도 판정

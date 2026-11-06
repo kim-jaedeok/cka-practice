@@ -220,15 +220,18 @@ cka exam abort            # 중단
 ```bash
 bash exam/ssh/build.sh                  # base·target image 1회 빌드
 cka exam-ssh preflight --install-linger # 필요할 때만 1회 권한 설정
-cka exam-ssh prepare --seed rehearsal-1
-cka exam-ssh start
+
+# 터미널 A
+cka exam-ssh begin --form A             # 준비 + 시작 (시험 은행 form)
+cka exam-ssh question 1                 # 문제 보기 (1~17)
+# 터미널 B
 cka exam-ssh enter                      # base 진입 후: ssh cka-target
-cka exam-ssh question 1
-cka exam-ssh seal
-cka exam-ssh collect
-cka exam-ssh grade
-cka exam-ssh cleanup
+# 터미널 A
+cka exam-ssh finish                     # seal + collect + grade + cleanup
 ```
+
+연습 문제로 만든 form은 `begin --seed rehearsal-1`로 시작한다. 모든 명령은 Colima VM 같은
+Linux host에서 실행한다. macOS의 bash 3.2에서는 실행되지 않는다.
 
 - 이 모드는 PID (Process Identifier) 1이 systemd이고 persistent user manager와 login
   linger가 동작할 때만
