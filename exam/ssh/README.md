@@ -68,6 +68,11 @@ VM(Linux) 터미널 2개를 쓴다. 명령은 네 가지다.
 `finish`는 채점할 수 없는 run(`INVALID` 등)은 지우지 않고 멈춘다. 그런 run은
 `cka exam-ssh cleanup`으로 버린다. `cleanup`은 채점하지 않는다.
 
+채점 도중 프로세스가 끊기면(Ctrl-C, 정책 파일 오류 등) run은 `COLLECTED`로 남는다. 같은
+`finish`(또는 `grade`)를 다시 실행하면 runner가 supervisor에 seal gate를 다시 증명받고, 저장된
+채점 승인과 provenance가 같을 때만 결과를 다시 만든다. 재개 기록은 run 디렉터리의
+`grade-attempts.log`에 남는다. 채점기가 실패해 `INVALID`가 된 run은 다시 채점하지 않는다.
+
 웹 UI(`cka web`)의 「모의고사」 탭에서도 같은 흐름을 버튼으로 진행한다. 이때 오른쪽 터미널이
 base host에 연결되므로 터미널을 하나만 쓴다.
 

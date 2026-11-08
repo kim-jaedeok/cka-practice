@@ -648,23 +648,60 @@ CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_LEDGER="$ledger" RUNNER_UNDER_TEST="$
 if bank_guard A 0 >/dev/null; then fail 'exposed form started without --allow-seen'; fi
 [ "$(bank_guard A 1)" = false ] || fail 'allow-seen run was not marked non-blind'
 [ "$(bank_guard B 0)" = true ] || fail 'exposure of A leaked to form B'
-ok 'exposed forms refuse blind reuse and --allow-seen runs are not blind'
+# --allow-seen declares the form seen even when this ledger has no record.
+[ "$(bank_guard B 1)" = false ] || fail 'allow-seen on an unrecorded form was marked blind'
+# A ledger that exists but cannot be read is neither "exposed" nor "fresh".
+mv "$ledger" "$ledger.aside"; mkdir "$ledger"
+if bank_guard A 0 >/dev/null; then fail 'unreadable ledger passed as a fresh form'; fi
+if bank_guard A 1 >/dev/null; then fail 'unreadable ledger passed with --allow-seen'; fi
+rmdir "$ledger"; mv "$ledger.aside" "$ledger"
+ok 'exposed forms refuse blind reuse, --allow-seen is never blind, unreadable ledger fails closed'
 
 # Bank questions declare submission files in meta.yaml, validated like the allowlist.
 mkdir -p "$case_root/run"
 printf 'ex-st-02\n' > "$case_root/run/questions"
-printf 'answer_files: ["out/report.txt"]\n' >> "$bank/storage/ex-st-02/meta.yaml"
+printf 'answer_files: ["report.txt"]\n' >> "$bank/storage/ex-st-02/meta.yaml"
 answers="$(CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_DIR="$bank" RUNNER_UNDER_TEST="$RUNNER" \
   CASE_ROOT="$case_root" bash -c '
     source "$RUNNER_UNDER_TEST"; RUN_DIR="$CASE_ROOT/run"; answer_arguments')"
-[ "$answers" = ex-st-02:out/report.txt ] || fail "bank answer files were not derived: $answers"
-printf 'answer_files: ["../escape"]\n' >> "$bank/storage/ex-st-02/meta.yaml"
-if CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_DIR="$bank" RUNNER_UNDER_TEST="$RUNNER" \
-    CASE_ROOT="$case_root" bash -c '
-      source "$RUNNER_UNDER_TEST"; RUN_DIR="$CASE_ROOT/run"; answer_arguments' >/dev/null 2>&1; then
-  fail 'bank answer file traversal was accepted'
-fi
-ok 'bank answer files come from meta.yaml and reject traversal'
+[ "$answers" = ex-st-02:report.txt ] || fail "bank answer files were not derived: $answers"
+# The supervisor accepts one file name per entry (FILE_NAME_RE); the runner
+# must refuse everything else before the form can be marked exposed.
+for bad in '["out/report.txt"]' '["../escape"]' '[".hidden"]'; do
+  printf 'answer_files: %s\n' "$bad" >> "$bank/storage/ex-st-02/meta.yaml"
+  if CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_EXAM_BANK_DIR="$bank" RUNNER_UNDER_TEST="$RUNNER" \
+      CASE_ROOT="$case_root" bash -c '
+        source "$RUNNER_UNDER_TEST"; RUN_DIR="$CASE_ROOT/run"; answer_arguments' >/dev/null 2>&1; then
+    fail "bank answer file $bad was accepted"
+  fi
+done
+ok 'bank answer files come from meta.yaml and follow the supervisor file-name rule'
+
+# cmd_start must not start the session when the answer list cannot be built.
+start_trace() { # <case> <answer_arguments rc> -> "rc:session-called"
+  local root rc called=0
+  root="$(new_case "$1")"
+  mkdir -p "$root/run"
+  printf 'ts-01\n' > "$root/run/questions"
+  printf '#!/usr/bin/env bash\n: > "$SESSION_MARK"\nprintf "{}\\n"\n' > "$root/session"
+  chmod 0700 "$root/session"
+  CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_SSH_SESSION_SCRIPT="$root/session" RUNNER_UNDER_TEST="$RUNNER" \
+    CASE_ROOT="$root" ANSWER_RC="$2" SESSION_MARK="$root/called" bash -c '
+      source "$RUNNER_UNDER_TEST"
+      load_run(){ RUN_ID=start-trace; RUN_DIR="$CASE_ROOT/run"; STATUS_PHASE=PREPARED; }
+      plan_value(){ printf "%s\n" 60; }
+      run_form_value(){ :; }
+      runner_status_write(){ :; }
+      answer_arguments(){ printf "ts-01:a.txt\n"; return "$ANSWER_RC"; }
+      cmd_start
+    ' >/dev/null 2>&1
+  rc=$?
+  [ ! -e "$root/called" ] || called=1
+  printf '%s:%s\n' "$rc" "$called"
+}
+[ "$(start_trace start-answers-ok 0)" = '0:1' ] || fail 'start with a valid answer list did not reach the supervisor'
+[ "$(start_trace start-answers-bad 2)" = '2:0' ] || fail 'start with a broken answer list still reached the supervisor'
+ok 'start refuses to activate when the answer allowlist cannot be built'
 
 # result.json keeps per-domain scores and a readiness verdict that needs a blind form.
 bank_grade_case() { # <name> <form.json content or ""> -> prints result.json path
@@ -715,6 +752,46 @@ result="$(bank_grade_case seeded-practice '')" || fail 'seeded grading failed'
 [ "$(result_field "$result" form)" = None ] && [ "$(result_field "$result" readinessPass)" = false ] \
   || fail 'seeded practice run counted toward readiness'
 ok 'result.json records domain scores and readiness needs a blind form and domain gates'
+
+# A grading attempt that stopped after authorization (here: a missing policy
+# file) can be graded again. The seal gate is proven again and must report the
+# same provenance; changed provenance is an integrity fault.
+resume_root="$(new_case grade-resume)"
+mkdir -p "$resume_root/run/collected" "$resume_root/run/logs" "$resume_root/q/ex-ts-01"
+printf 'ex-ts-01\n' > "$resume_root/run/questions"
+printf '%s\n' '{"form":"A","blind":true,"manifest_sha256":"x"}' > "$resume_root/run/form.json"
+printf 'id: ex-ts-01\npoints: 10\n' > "$resume_root/q/ex-ts-01/meta.yaml"
+printf '#!/usr/bin/env bash\nmkdir -p "$CKA_STATE_DIR/status"\nprintf graded:10/10 > "$CKA_STATE_DIR/status/ex-ts-01"\n' \
+  > "$resume_root/q/ex-ts-01/grade.sh"
+cat > "$resume_root/session" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = authorize-grade ] || exit 99
+printf '{"run_id":"resume","operation":"grade","seal_reason":"%s","sealed_at_epoch":90,"deadline_epoch":100,"deadline_enforced":%s,"manifest_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","seal_proof_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","authorized_at_epoch":%s}\n' \
+  "${SEAL_REASON:-manual}" "${DEADLINE_ENFORCED:-false}" "$(date +%s)"
+SH
+chmod 0700 "$resume_root/session"
+grade_attempt() { # <policy path> [seal reason] [deadline enforced] -> rc
+  CKA_SSH_RUNNER_SOURCE_ONLY=1 CKA_SSH_SESSION_SCRIPT="$resume_root/session" CKA_READINESS_POLICY="$1" \
+    SEAL_REASON="${2:-manual}" DEADLINE_ENFORCED="${3:-false}" \
+    RUNNER_UNDER_TEST="$RUNNER" CASE_ROOT="$resume_root" bash -c '
+      source "$RUNNER_UNDER_TEST"
+      load_run(){ RUN_ID=resume; RUN_DIR="$CASE_ROOT/run"; STATUS_PHASE=COLLECTED; }
+      runner_status_write(){ STATUS_PHASE="$1"; }
+      question_dir(){ printf "%s\n" "$CASE_ROOT/q/$1"; }
+      plan_value(){ printf "%064d\n" 0; }
+      runner_trusted_state_materialize(){ mkdir -p "$RUN_DIR/grader-final"; chmod 0700 "$RUN_DIR/grader-final"; }
+      cmd_grade
+    ' >/dev/null 2>&1
+}
+if grade_attempt "$resume_root/missing-policy.yaml"; then fail 'grading with a missing policy file succeeded'; fi
+[ -f "$resume_root/run/grade-authorization.json" ] || fail 'interrupted grading left no authorization file'
+[ ! -e "$resume_root/run/result.json" ] || fail 'interrupted grading produced result.json'
+if grade_attempt "$ROOT/exam/readiness-policy.yaml" deadline true; then fail 'resume accepted changed seal provenance'; fi
+[ ! -e "$resume_root/run/result.json" ] || fail 'changed provenance still produced result.json'
+grade_attempt "$ROOT/exam/readiness-policy.yaml" || fail 'grading did not resume after the policy file was restored'
+[ "$(result_field "$resume_root/run/result.json" verdict)" = PASS ] || fail 'resumed grading verdict is wrong'
+grep -q resumed "$resume_root/run/grade-attempts.log" || fail 'resume was not recorded'
+ok 'an interrupted grading attempt resumes only when the seal gate re-proves the same provenance'
 
 # begin = prepare then start; finish runs only the remaining transitions and
 # never cleans up a run it could not grade.

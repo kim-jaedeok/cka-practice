@@ -384,6 +384,8 @@ function stopExamPoll() { if (examPoll) { clearInterval(examPoll); examPoll = nu
 // 문제 본문은 runner가 시작 뒤에만 내준다. 이 화면은 form 이름과 노출 여부만 다룬다.
 let bankPoll = null, bankTick = null, bankDeadline = null, bankClockOffset = 0, bankPhase = null;
 let bankBusy = false;   // begin/finish/cleanup 요청 중에는 polling이 버튼을 다시 켜지 않는다
+let bankPrevPhase = null;   // 새로고침 뒤 PREPARING→RUNNING 전환을 감지해 터미널을 다시 연결한다
+const BANK_SETTLED_PHASES = ['RUNNING', 'SEALED', 'COLLECTED', 'GRADED', 'INVALID', 'CORRUPT'];
 const BANK_REVIEW_PHASES = ['RUNNING', 'SEALED', 'COLLECTED', 'GRADED'];
 function fmtHms(s) {
   if (s < 0) s = 0;
@@ -415,10 +417,13 @@ async function bankState() {
   bankDeadline = s.deadlineEpoch || null;
   if (s.now) bankClockOffset = s.now - Math.floor(Date.now() / 1000);
   const running = BANK_REVIEW_PHASES.includes(bankPhase);
+  // begin이 아직 준비 중(PREPARING/PREPARED)이면 종료·버리기를 막는다. 그 요청은
+  // runner lock에서 기다리다가 시작 직후 실행되어 시험을 바로 봉인할 수 있다.
+  const settled = !s.active || BANK_SETTLED_PHASES.includes(bankPhase);
   $('btnBankBegin').disabled = bankBusy || !!s.active;
   $('bankForm').disabled = bankBusy || !!s.active;
-  $('btnBankFinish').disabled = bankBusy || !s.active;
-  $('btnBankDiscard').disabled = bankBusy || !s.active;
+  $('btnBankFinish').disabled = bankBusy || !s.active || !settled;
+  $('btnBankDiscard').disabled = bankBusy || !s.active || !settled;
   const nav = $('bankNav');
   if (running && !nav.childElementCount) {
     for (let n = 1; n <= 17; n++) {
@@ -438,7 +443,11 @@ async function bankState() {
     sel.appendChild(o); sel.value = '';
   }
   renderBankTimer();
-  if (bankPhase === 'RUNNING') startBankPoll(); else stopBankPoll();
+  // 다른 창이나 새로고침 전의 begin이 끝나 RUNNING이 되면 터미널을 base host로 다시 연결한다.
+  if (bankPhase === 'RUNNING' && bankPrevPhase !== null && bankPrevPhase !== 'RUNNING' && !bankBusy) reloadTerminal();
+  bankPrevPhase = bankPhase;
+  // 준비 중(PREPARING)에도 polling을 유지해야 RUNNING 전환을 놓치지 않는다.
+  if (s.active) startBankPoll(); else stopBankPoll();
   await syncExamLock();
   return s;
 }
@@ -484,7 +493,7 @@ async function bankAction(cmd, body, waitMsg) {
 }
 function startBankPoll() {
   if (!bankTick) bankTick = setInterval(renderBankTimer, 1000);
-  if (!bankPoll) bankPoll = setInterval(() => bankState().catch(() => {}), 15000);
+  if (!bankPoll) bankPoll = setInterval(() => { if (!bankBusy) bankState().catch(() => {}); }, 15000);
 }
 function stopBankPoll() {
   if (bankTick) { clearInterval(bankTick); bankTick = null; }

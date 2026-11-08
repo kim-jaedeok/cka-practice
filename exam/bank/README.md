@@ -32,7 +32,9 @@ runner는 다음을 검사하고, 하나라도 어기면 준비를 거부한다.
   Workloads & Scheduling 3, Storage 2
 - `exam/planner.sh`와 같은 호환성 규칙(mutex, breaks↔breaks, breaks↔requires)
 
-제출 파일은 각 문제의 `meta.yaml` `answer_files`에 적는다.
+제출 파일은 각 문제의 `meta.yaml` `answer_files`에 적는다. 값은 `~/cka/<id>/` 바로 아래의
+파일 이름이어야 한다. 하위 디렉터리와 `.`으로 시작하는 이름은 쓸 수 없다. supervisor의
+`FILE_NAME_RE`와 같은 규칙이고, runner는 form을 노출로 기록하기 전에 이 규칙으로 거른다.
 
 ## node 수준 문제와 Helm 문제
 

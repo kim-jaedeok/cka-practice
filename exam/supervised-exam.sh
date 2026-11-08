@@ -483,10 +483,16 @@ with open(order_out, "w", encoding="utf-8") as f:
 PY
 }
 
-bank_form_exposed() { # <form>
-  [ -f "$EXAM_BANK_LEDGER" ] || return 1
+bank_form_exposed() { # <form> -> 0 exposed, 1 not exposed, 2 ledger unreadable
+  # Only a missing ledger means "never exposed".  A ledger that exists but
+  # cannot be read must not pass as a first, blind run.
+  [ -e "$EXAM_BANK_LEDGER" ] || [ -L "$EXAM_BANK_LEDGER" ] || return 1
+  [ -f "$EXAM_BANK_LEDGER" ] && [ ! -L "$EXAM_BANK_LEDGER" ] && [ -r "$EXAM_BANK_LEDGER" ] || return 2
+  local rc=0
   awk -F'\t' -v form="$1" '$1 == form && $4 == "EXPOSED" { found = 1 } END { exit found ? 0 : 1 }' \
-    "$EXAM_BANK_LEDGER"
+    "$EXAM_BANK_LEDGER" || rc=$?
+  [ "$rc" -le 1 ] || return 2
+  return "$rc"
 }
 
 bank_form_mark_exposed() { # <form> <run-id>
@@ -496,13 +502,17 @@ bank_form_mark_exposed() { # <form> <run-id>
 }
 
 # Refuse a seen form unless the operator explicitly accepts a non-blind run.
+# --allow-seen always yields a non-blind run: the operator is declaring the
+# form seen, whether or not this ledger recorded it.
 bank_form_guard() { # <form> <allow-seen 0|1>
-  if bank_form_exposed "$1"; then
-    [ "$2" = 1 ] || runner_die "form $1 was already exposed; rerun with --allow-seen for a non-blind practice run"
-    printf 'false\n'
-  else
-    printf 'true\n'
-  fi
+  local exposed=0
+  bank_form_exposed "$1" || exposed=$?
+  case "$exposed" in
+    0) [ "$2" = 1 ] || runner_die "form $1 was already exposed; rerun with --allow-seen for a non-blind practice run" ;;
+    1) ;;
+    *) runner_die "cannot read the exam bank exposure ledger: $EXAM_BANK_LEDGER" ;;
+  esac
+  if [ "$2" = 1 ]; then printf 'false\n'; else printf 'true\n'; fi
 }
 
 run_form_value() { # <key>; empty for seeded practice forms
@@ -849,9 +859,12 @@ for line in open(sys.argv[1], encoding="utf-8"):
     if line.startswith("answer_files:"):
         raw = line.split(":", 1)[1].strip()
 files = json.loads(raw) if raw else []
+# Same rule as the supervisor's FILE_NAME_RE (exam/ssh/supervisor/supervisor.py):
+# one file name directly under ~/cka/<id>/, no subdirectories.  Anything the
+# supervisor would refuse must fail here, before the form is marked exposed.
 for relative in files:
-    if not isinstance(relative, str) or not re.fullmatch(r"[A-Za-z0-9._/-]+", relative) \
-            or ".." in relative.split("/") or relative.startswith("/"):
+    if not isinstance(relative, str) \
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", relative) or ".." in relative:
         raise SystemExit(1)
     print(f"{sys.argv[2]}:{relative}")
 PY
@@ -867,7 +880,14 @@ cmd_start() {
     --input-manifest "$RUN_DIR/input-manifest.json" --external-network-id "$network"
     --base-image "${CKA_SSH_BASE_IMAGE:-cka-practice/ssh-base:v1}"
     --target-image "${CKA_SSH_TARGET_IMAGE:-cka-practice/ssh-target:v1}")
-  while IFS= read -r answer; do [ -n "$answer" ] && args+=(--answer "$answer"); done < <(answer_arguments)
+  # Build the whole answer allowlist first and check its exit status.  A
+  # process substitution would hide a failure inside answer_arguments and
+  # start the exam with a partial list, so submitted files would not be
+  # collected.
+  local answers
+  answers="$(answer_arguments)" \
+    || runner_die "answer file list is invalid; the run was not started"
+  while IFS= read -r answer; do [ -n "$answer" ] && args+=(--answer "$answer"); done <<<"$answers"
   # A bank form is consumed once candidate access may begin, even if the run
   # later fails. Record it first so no exposure can go unrecorded.
   local form
@@ -954,15 +974,39 @@ parse_grade_state() {
 cmd_grade() {
   load_run
   [ "$STATUS_PHASE" = COLLECTED ] || runner_transition_error "grade requires COLLECTED, found $STATUS_PHASE"
-  [ ! -e "$RUN_DIR/grade-authorization.json" ] || runner_transition_error "grade authorization is create-once"
-  local authorization auth_tmp="$RUN_DIR/grade-authorization.tmp.$$"
+  local authorization auth_file="$RUN_DIR/grade-authorization.json" auth_tmp="$RUN_DIR/grade-authorization.tmp.$$" resume=0
+  # A grading attempt that stopped after authorization (killed process, broken
+  # policy file) leaves COLLECTED plus this file.  Such a run is graded again:
+  # the seal gate is proven again below, the stored provenance must match, and
+  # every derived output is rebuilt from the collected files.
+  if [ -e "$auth_file" ] || [ -L "$auth_file" ]; then
+    [ -f "$auth_file" ] && [ ! -L "$auth_file" ] || runner_integrity_invalid "grade authorization file was replaced"
+    resume=1
+  fi
   # This call is deliberately the first grading-side effect.  No question
   # grader path is reached unless the supervisor proves the seal gate now.
   if ! authorization="$(CKA_SSH_SUPERVISOR_STATE_ROOT="$SUPERVISOR_ROOT" bash "$SESSION" authorize-grade --run-id "$RUN_ID")"; then
     runner_status_write INVALID "supervisor grade authorization failed"
     runner_die "no grader was called because authorize-grade failed"
   fi
-  printf '%s\n' "$authorization" > "$auth_tmp"; chmod 0400 "$auth_tmp"; mv -- "$auth_tmp" "$RUN_DIR/grade-authorization.json"
+  if [ "$resume" -eq 1 ]; then
+    python3 - "$auth_file" "$authorization" <<'PY' || runner_integrity_invalid "grade authorization changed between attempts"
+import json, sys
+old = json.load(open(sys.argv[1], encoding="utf-8")); new = json.loads(sys.argv[2])
+volatile = {"authorized_at_epoch"}
+if {k: v for k, v in old.items() if k not in volatile} != {k: v for k, v in new.items() if k not in volatile}:
+    raise SystemExit(1)
+PY
+    runner_progress "grade: resuming an interrupted grading attempt; derived outputs are rebuilt"
+    printf '%s\tresumed\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$RUN_DIR/grade-attempts.log"
+    if [ -d "$RUN_DIR/grader-final" ] && [ ! -L "$RUN_DIR/grader-final" ]; then
+      chmod -R u+rwx -- "$RUN_DIR/grader-final"
+      rm -rf -- "$RUN_DIR/grader-final"
+    fi
+    rm -f -- "$RUN_DIR/result.json" "$RUN_DIR/score.txt" "$RUN_DIR/question-scores.tsv"
+  else
+    printf '%s\n' "$authorization" > "$auth_tmp"; chmod 0400 "$auth_tmp"; mv -- "$auth_tmp" "$auth_file"
+  fi
   local timed_out
   timed_out="$(python3 - "$RUN_DIR/grade-authorization.json" "$RUN_ID" <<'PY'
 import json,sys
