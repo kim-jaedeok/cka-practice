@@ -2450,10 +2450,17 @@ def command_candidate_entry(args: argparse.Namespace) -> int:
         manifest, digest = store.load_manifest()
         store.require_active(manifest["run_nonce"])
         status = store.read_status()
-        if not status.get("valid"):
+        phase = status.get("phase")
+        # Closed means the session ended the normal way: it was sealed (and
+        # possibly collected), or it is still RUNNING but the deadline passed
+        # or a seal proof exists.  Any other phase while the runner believes
+        # the session is RUNNING is an inconsistency, so it stays an error
+        # that the runner treats as an integrity fault.
+        if status.get("valid") and phase in {"SEALED", "COLLECTED"}:
+            raise EntryClosedError("candidate entry is closed because the session was sealed")
+        if phase != "RUNNING" or not status.get("valid"):
             raise SupervisorError("candidate entry is available only for a valid running session")
-        if (status.get("phase") != "RUNNING" or epoch_now() >= manifest["deadline_epoch"]
-                or store.seal_proof_path.exists()):
+        if epoch_now() >= manifest["deadline_epoch"] or store.seal_proof_path.exists():
             raise EntryClosedError("candidate entry is closed because the session deadline or seal was reached")
         engine = engine_from_manifest(manifest, args.engine)
         inspect_exact_topology(engine, manifest)

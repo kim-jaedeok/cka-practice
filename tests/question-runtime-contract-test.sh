@@ -662,7 +662,7 @@ public_cli_creators_share_the_infrastructure_gate() {
   grep -Fq 'start|grade|solution|reset|init|cleanup) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
     && grep -Fq 'up|reset|doctor) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
     && grep -Fq 'start) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
-    && grep -Fq 'prepare) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
+    && grep -Fq 'prepare|begin) printf '\''%s\n'\'' nowait' <<<"$gate_body" \
     && grep -Fq 'infrastructure_lock_exec "$infra_gate_mode"' <<<"$wrapper" \
     && grep -Fq 'infrastructure_gate_parent_holds_lock' <<<"$wrapper" \
     && grep -Fq 'CKA_INFRA_LOCK_ROOT="$CKA_INFRA_LOCK_CANONICAL_ROOT"' <<<"$wrapper" \

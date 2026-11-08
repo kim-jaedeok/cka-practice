@@ -459,7 +459,14 @@ sup "$case_root" seal --run-id entry-closed --engine "$FAKE" --reason manual >/d
 entry_rc=0
 sup "$case_root" candidate-entry --run-id entry-closed --engine "$FAKE" >/dev/null 2>&1 || entry_rc=$?
 [ "$entry_rc" -eq 3 ] || fail "sealed candidate entry returned $entry_rc instead of 3"
-ok 'candidate entry after a seal reports closed (exit 3), not an integrity fault'
+# A session that never reached RUNNING is not "closed": entry stays a plain
+# error (exit 2) that the runner treats as an integrity fault.
+case_root="$(new_case entry-unactivated)"; network_id="$(external_network "$case_root" unactivated)"
+prepare_form "$case_root" entry-unactivated "$network_id" >/dev/null
+entry_rc=0
+sup "$case_root" candidate-entry --run-id entry-unactivated --engine "$FAKE" >/dev/null 2>&1 || entry_rc=$?
+[ "$entry_rc" -eq 2 ] || fail "unactivated candidate entry returned $entry_rc instead of 2"
+ok 'candidate entry after a seal reports closed (exit 3); before activation it is an error (exit 2)'
 
 # A premature user transition must not overwrite RUNNING. Cleanup still seals
 # and removes the exact manifest IDs, while preserving the external KIND net.

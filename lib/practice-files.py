@@ -190,7 +190,10 @@ def main(argv=None):
     save(root, state, data)
     if args.action in ("pause", "adopt"):
         return
-    for name, owner in list(owners.items()):
+    # Delete in name order. Owners are collected from a set difference, so
+    # dict order would follow the per-process hash seed and make an
+    # interrupted cleanup leave a different remainder on every run.
+    for name, owner in sorted(owners.items()):
         if not owner["pending"]:
             continue
         directory(root)

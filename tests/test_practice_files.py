@@ -14,6 +14,16 @@ from unittest.mock import patch
 SCRIPT = Path(__file__).resolve().parents[1] / "lib" / "practice-files.py"
 
 
+def bash_major_version():
+    """lib/common.sh needs bash >= 4.2 (declare -g); macOS ships bash 3.2."""
+    try:
+        result = subprocess.run(["bash", "-c", 'printf %s "${BASH_VERSINFO[0]}"'],
+                                capture_output=True, text=True, timeout=10)
+        return int(result.stdout or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
+
+
 class PracticeFilesTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="cka-practice-files-")
@@ -185,7 +195,8 @@ class PracticeFilesTests(unittest.TestCase):
         self.run_action("start", "ca-09", success=False)
         self.assertEqual(list(outside.iterdir()), [])
 
-    @unittest.skipIf(os.name == "nt", "run Bash integration under Linux/WSL")
+    @unittest.skipIf(os.name == "nt" or bash_major_version() < 4,
+                     "run Bash integration under Linux/WSL (bash >= 4)")
     def test_runtime_and_cluster_down_delete_real_root_files(self):
         (self.root / "lib").mkdir()
         shutil.copyfile(SCRIPT, self.root / "lib" / SCRIPT.name)
